@@ -176,6 +176,22 @@ Reports
 
 </a>
 
+<a href="<%= request.getContextPath() %>/ai-chat.jsp">
+    🤖 AI Assistant
+</a>
+
+<a href="inputDocument">
+    <i class="bi bi-file-earmark-arrow-up"></i>
+    Bank Statement
+</a>
+
+</a>
+
+<a href="profile">
+    <i class="bi bi-person-circle"></i>
+    Profile
+</a>
+
 <a href="logout">
 
 <i class="bi bi-box-arrow-right"></i>
@@ -283,6 +299,40 @@ Welcome
 </div>
 
 
+
+<div class="row mt-4">
+
+    <div class="col-md-6">
+
+        <div class="card shadow-sm">
+
+            <div class="card-body">
+
+                <h5 class="card-title">
+                    <i class="bi bi-file-earmark-pdf text-danger"></i>
+                    Bank Statement Analysis
+                </h5>
+
+                <p class="card-text text-muted">
+                    Upload and analyze your bank statement
+                    using PDF extraction and AI-powered analysis.
+                </p>
+
+                <a href="<%=request.getContextPath()%>/inputDocument"
+                   class="btn btn-primary">
+
+                    <i class="bi bi-upload"></i>
+                    Manage Bank Statements
+
+                </a>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
 
 
 <!-- ================= Charts ================= -->
