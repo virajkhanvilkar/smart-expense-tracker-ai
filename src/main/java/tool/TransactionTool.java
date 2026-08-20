@@ -17,6 +17,7 @@ public class TransactionTool {
      * GET TOTAL INCOME
      * ============================================================
      */
+
     public double getTotalIncome(int userId) {
 
         String sql =
@@ -41,7 +42,7 @@ public class TransactionTool {
 
             System.out.println(
                     "TransactionTool - getTotalIncome error: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
 
             e.printStackTrace();
@@ -56,6 +57,7 @@ public class TransactionTool {
      * GET TOTAL EXPENSE
      * ============================================================
      */
+
     public double getTotalExpense(int userId) {
 
         String sql =
@@ -80,7 +82,7 @@ public class TransactionTool {
 
             System.out.println(
                     "TransactionTool - getTotalExpense error: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
 
             e.printStackTrace();
@@ -95,6 +97,7 @@ public class TransactionTool {
      * GET TOTAL TRANSACTION COUNT
      * ============================================================
      */
+
     public int getTransactionCount(int userId) {
 
         String sql =
@@ -118,7 +121,7 @@ public class TransactionTool {
 
             System.out.println(
                     "TransactionTool - getTransactionCount error: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
 
             e.printStackTrace();
@@ -132,15 +135,8 @@ public class TransactionTool {
      * ============================================================
      * GET CATEGORY SPENDING
      * ============================================================
-     *
-     * Example:
-     *
-     * Food
-     * Shopping
-     * UPI
-     * Travel
-     *
      */
+
     public double getCategorySpending(
             int userId,
             String category) {
@@ -169,7 +165,7 @@ public class TransactionTool {
 
             System.out.println(
                     "TransactionTool - getCategorySpending error: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
 
             e.printStackTrace();
@@ -183,14 +179,8 @@ public class TransactionTool {
      * ============================================================
      * GET CATEGORY-WISE EXPENSE
      * ============================================================
-     *
-     * Returns:
-     *
-     * Food       -> 5000
-     * Shopping   -> 3500
-     * Travel     -> 2000
-     *
      */
+
     public List<Map<String, Object>> getCategoryWiseExpense(
             int userId) {
 
@@ -242,7 +232,7 @@ public class TransactionTool {
 
             System.out.println(
                     "TransactionTool - getCategoryWiseExpense error: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
 
             e.printStackTrace();
@@ -256,11 +246,8 @@ public class TransactionTool {
      * ============================================================
      * GET MONTHLY SUMMARY
      * ============================================================
-     *
-     * month = 1 to 12
-     * year  = 2026 etc.
-     *
      */
+
     public Map<String, Object> getMonthlySummary(
             int userId,
             int month,
@@ -326,7 +313,7 @@ public class TransactionTool {
 
             System.out.println(
                     "TransactionTool - getMonthlySummary error: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
 
             e.printStackTrace();
@@ -341,6 +328,7 @@ public class TransactionTool {
      * GET RECENT TRANSACTIONS
      * ============================================================
      */
+
     public List<Map<String, Object>> getRecentTransactions(
             int userId,
             int limit) {
@@ -351,6 +339,7 @@ public class TransactionTool {
         /*
          * Prevent invalid LIMIT values.
          */
+
         if (limit <= 0) {
             limit = 5;
         }
@@ -423,7 +412,7 @@ public class TransactionTool {
 
             System.out.println(
                     "TransactionTool - getRecentTransactions error: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
 
             e.printStackTrace();
@@ -438,6 +427,7 @@ public class TransactionTool {
      * GET HIGHEST EXPENSES
      * ============================================================
      */
+
     public List<Map<String, Object>> getHighestExpenses(
             int userId,
             int limit) {
@@ -512,7 +502,7 @@ public class TransactionTool {
 
             System.out.println(
                     "TransactionTool - getHighestExpenses error: "
-                    + e.getMessage()
+                            + e.getMessage()
             );
 
             e.printStackTrace();
@@ -526,10 +516,8 @@ public class TransactionTool {
      * ============================================================
      * GET FINANCIAL SUMMARY
      * ============================================================
-     *
-     * This is useful for the AI Agent.
-     *
      */
+
     public Map<String, Object> getFinancialSummary(
             int userId) {
 
@@ -566,5 +554,88 @@ public class TransactionTool {
         );
 
         return result;
+    }
+
+
+    /*
+     * ============================================================
+     * ADD EXPENSE
+     * ============================================================
+     */
+
+    public boolean addExpense(
+            int userId,
+            String category,
+            String description,
+            double amount) {
+
+        String sql =
+                "INSERT INTO transactions " +
+                "(user_id, transaction_date, type, category, description, amount) " +
+                "VALUES (?, CURDATE(), 'EXPENSE', ?, ?, ?)";
+
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+
+            ps.setInt(1, userId);
+            ps.setString(2, category);
+            ps.setString(3, description);
+            ps.setDouble(4, amount);
+
+            int rows =
+                    ps.executeUpdate();
+
+            return rows > 0;
+
+        } catch (Exception e) {
+
+            System.out.println(
+                    "TransactionTool - addExpense error: "
+                            + e.getMessage()
+            );
+
+            e.printStackTrace();
+
+            return false;
+        }
+    }
+
+
+    /*
+     * ============================================================
+     * DELETE TRANSACTION
+     * ============================================================
+     */
+
+    public boolean deleteTransaction(
+            int userId,
+            int transactionId) {
+
+        String sql =
+                "DELETE FROM transactions " +
+                "WHERE id = ? AND user_id = ?";
+
+        try (Connection con = DBConnection.getConnection();
+             PreparedStatement ps = con.prepareStatement(sql)) {
+
+            ps.setInt(1, transactionId);
+            ps.setInt(2, userId);
+
+            int rows =
+                    ps.executeUpdate();
+
+            return rows > 0;
+
+        } catch (Exception e) {
+
+            System.out.println(
+                    "TransactionTool - deleteTransaction error: "
+                            + e.getMessage()
+            );
+
+            e.printStackTrace();
+
+            return false;
+        }
     }
 }
