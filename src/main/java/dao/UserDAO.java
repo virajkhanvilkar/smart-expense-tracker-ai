@@ -9,12 +9,16 @@ import util.DBConnection;
 
 public class UserDAO {
 
+    // ==========================================
     // Register User
+    // ==========================================
+
     public boolean registerUser(User user) {
 
         boolean status = false;
 
         try {
+
             Connection con = DBConnection.getConnection();
 
             String sql = "INSERT INTO users(full_name,email,password,phone) VALUES(?,?,?,?)";
@@ -42,7 +46,11 @@ public class UserDAO {
         return status;
     }
 
+
+    // ==========================================
     // Login User
+    // ==========================================
+
     public User loginUser(String email, String password) {
 
         User user = null;
@@ -82,7 +90,11 @@ public class UserDAO {
         return user;
     }
 
+
+    // ==========================================
     // Check Email Already Exists
+    // ==========================================
+
     public boolean emailExists(String email) {
 
         boolean exists = false;
@@ -112,6 +124,42 @@ public class UserDAO {
         }
 
         return exists;
+    }
+
+
+    // ==========================================
+    // Update Password
+    // ==========================================
+
+    public boolean updatePassword(String email, String newPassword) {
+
+        boolean status = false;
+
+        try {
+
+            Connection con = DBConnection.getConnection();
+
+            String sql = "UPDATE users SET password=? WHERE email=?";
+
+            PreparedStatement ps = con.prepareStatement(sql);
+
+            ps.setString(1, newPassword);
+            ps.setString(2, email);
+
+            int rows = ps.executeUpdate();
+
+            if (rows > 0) {
+                status = true;
+            }
+
+            ps.close();
+            con.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return status;
     }
 
 }

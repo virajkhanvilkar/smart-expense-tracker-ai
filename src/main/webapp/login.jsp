@@ -1,137 +1,199 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8"
-pageEncoding="UTF-8"%>
+    pageEncoding="UTF-8"%>
 
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="UTF-8">
-<title>Login - Smart Expense Tracker</title>
 
-<style>
+    <meta charset="UTF-8">
 
-*{
-    margin:0;
-    padding:0;
-    box-sizing:border-box;
-    font-family:Arial, Helvetica, sans-serif;
-}
+    <title>Login - Smart Expense Tracker</title>
 
-body{
+    <style>
 
-    background:#f2f2f2;
-}
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, Helvetica, sans-serif;
+        }
 
-.container{
+        body {
+            background: #f2f2f2;
+        }
 
-    width:400px;
-    margin:80px auto;
-    background:white;
-    padding:30px;
-    border-radius:10px;
-    box-shadow:0px 0px 10px gray;
+        .container {
+            width: 400px;
+            margin: 80px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0px 0px 10px gray;
+        }
 
-}
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #2196F3;
+        }
 
-h2{
+        input {
+            width: 100%;
+            padding: 12px;
+            margin-top: 8px;
+            margin-bottom: 18px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
 
-    text-align:center;
-    margin-bottom:20px;
-    color:#2196F3;
+        /* Forgot Password */
 
-}
+        .forgot-password {
+            text-align: right;
+            margin-top: -8px;
+            margin-bottom: 18px;
+        }
 
-input{
+        .forgot-password a {
+            text-decoration: none;
+            color: #2196F3;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
 
-    width:100%;
-    padding:12px;
-    margin-top:8px;
-    margin-bottom:18px;
-    border:1px solid #ccc;
-    border-radius:5px;
-}
+        .forgot-password a:hover {
+            text-decoration: underline;
+        }
 
-button{
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
 
-    width:100%;
-    padding:12px;
-    background:#2196F3;
-    color:white;
-    border:none;
-    border-radius:5px;
-    cursor:pointer;
-    font-size:16px;
-}
+        button:hover {
+            background: #1976D2;
+        }
 
-button:hover{
+        p {
+            text-align: center;
+            margin-top: 20px;
+        }
 
-    background:#1976D2;
+        a {
+            text-decoration: none;
+            color: #2196F3;
+            font-weight: bold;
+        }
 
-}
-
-p{
-
-    text-align:center;
-    margin-top:20px;
-
-}
-
-a{
-
-    text-decoration:none;
-    color:#2196F3;
-    font-weight:bold;
-
-}
-
-</style>
+    </style>
 
 </head>
 
 <body>
 
-<div class="container">
+    <div class="container">
 
-<h2>Smart Expense Tracker</h2>
+        <h2>Smart Expense Tracker</h2>
 
-<form action="login" method="post">
+        <form action="login" method="post">
 
-<label>Email</label>
+            <label>Email</label>
 
-<input
-type="email"
-name="email"
-placeholder="Enter Email"
-required>
+            <input
+                type="email"
+                name="email"
+                id="email"
+                placeholder="Enter Email"
+                required>
 
-<label>Password</label>
 
-<input
-type="password"
-name="password"
-placeholder="Enter Password"
-required>
+            <label>Password</label>
 
-<button type="submit">
+            <input
+                type="password"
+                name="password"
+                placeholder="Enter Password"
+                required>
 
-Login
 
-</button>
+            <!-- Forgot Password -->
 
-</form>
+            <div class="forgot-password">
 
-<p>
+                <a href="#"
+                   onclick="forgotPassword(); return false;">
 
-Don't have an account?
+                    Forgot Password?
 
-<a href="register.jsp">
+                </a>
 
-Register Here
+            </div>
 
-</a>
 
-</p>
+            <button type="submit">
+                Login
+            </button>
 
-</div>
+        </form>
+
+
+        <p>
+
+            Don't have an account?
+
+            <a href="register.jsp">
+                Register Here
+            </a>
+
+        </p>
+
+    </div>
+
+
+    <!-- ==========================================
+         FORGOT PASSWORD JAVASCRIPT
+         ========================================== -->
+
+    <script>
+
+        function forgotPassword() {
+
+            // Get email entered by user
+
+            var email =
+                document.getElementById("email").value.trim();
+
+
+            // Check email entered
+
+            if (email === "") {
+
+                alert(
+                    "Please enter your registered email first."
+                );
+
+                document.getElementById("email").focus();
+
+                return;
+            }
+
+
+            // Send email to ForgotPasswordServlet
+
+            window.location.href =
+                "ForgotPasswordServlet?action=sendOtp&email="
+                + encodeURIComponent(email);
+        }
+
+    </script>
 
 </body>
 
