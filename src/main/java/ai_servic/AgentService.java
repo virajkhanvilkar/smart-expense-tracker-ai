@@ -2776,7 +2776,7 @@ public class AgentService {
 
             if (line.contains("|") &&
 
-                    line.split("\\\\|").length >= 3) {
+                    line.split("\\|").length >= 3) {
 
                 dataLine = line;
 
@@ -2816,7 +2816,7 @@ public class AgentService {
 
         String[] parts =
 
-                dataLine.split("\\\\|", 3);
+                dataLine.split("\\|", 3);
 
 
 
@@ -3810,7 +3810,7 @@ public class AgentService {
 
             if (line.contains("|") &&
 
-                    line.split("\\\\|").length >= 3) {
+                    line.split("\\|").length >= 3) {
 
                 dataLine = line;
 
@@ -3850,7 +3850,7 @@ public class AgentService {
 
         String[] parts =
 
-                dataLine.split("\\\\|", 3);
+                dataLine.split("\\|", 3);
 
 
 
@@ -4267,14 +4267,41 @@ public class AgentService {
     // ============================================================
     // FIND EXPENSE ID USING CATEGORY + OLD AMOUNT
     // ============================================================
-    // IMPORTANT: use expenses.expense_id directly.
-    // Do not search transactions.id because it is a different primary key.
-    private int findExpenseIdByCategoryAndAmount(
-            int userId, String category, double oldAmount) {
+    private int findExpenseIdByCategoryAndAmount(int userId, String category, double oldAmount) {
+        try {
+            List<Map<String, Object>> transactions =
+                    transactionTool.getRecentTransactions(userId, 10000);
 
-        return transactionTool.findExpenseIdByCategoryAndAmount(
-                userId, category, oldAmount
-        );
+            if (transactions == null) return -1;
+
+            for (Map<String, Object> row : transactions) {
+                if (row == null) continue;
+
+                Object typeObj = getMapValue(row, "type", "transaction_type", "transactionType");
+                if (typeObj != null && String.valueOf(typeObj).toLowerCase().contains("income")) {
+                    continue;
+                }
+
+                Object categoryObj = getMapValue(row, "category", "category_name", "categoryName");
+                Object amountObj = getMapValue(row, "amount", "expense_amount", "expenseAmount");
+                Object idObj = getMapValue(row, "id", "expense_id", "expenseId", "transaction_id", "transactionId");
+
+                if (categoryObj == null || amountObj == null || idObj == null) continue;
+                if (!String.valueOf(categoryObj).trim().equalsIgnoreCase(category == null ? "" : category.trim())) continue;
+
+                double dbAmount;
+                try { dbAmount = Double.parseDouble(String.valueOf(amountObj)); }
+                catch (NumberFormatException e) { continue; }
+
+                if (Math.abs(dbAmount - oldAmount) > 0.0001) continue;
+
+                try { return Integer.parseInt(String.valueOf(idObj)); }
+                catch (NumberFormatException ignored) { }
+            }
+        } catch (Exception e) {
+            System.out.println("Could not find expense by category + amount: " + e.getMessage());
+        }
+        return -1;
     }
 
     private Object getMapValue(Map<String, Object> row, String... keys) {
