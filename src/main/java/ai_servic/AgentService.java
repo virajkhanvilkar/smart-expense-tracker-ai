@@ -24,9 +24,13 @@ public class AgentService {
 
     private final TransactionTool transactionTool;
 
-    private static final String OLLAMA_URL =
+//    private static final String OLLAMA_URL =
+//
+//            "http://localhost:11434/api/chat";
 
-            "http://localhost:11434/api/chat";
+    
+    private static final String OLLAMA_URL =
+            "http://127.0.0.1:11450/api/chat";
 
     private static final String MODEL =
 
