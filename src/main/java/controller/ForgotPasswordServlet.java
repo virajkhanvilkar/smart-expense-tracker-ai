@@ -405,7 +405,7 @@ public class ForgotPasswordServlet extends HttpServlet {
             // =================================================
 
             final String appPassword =
-                    "nyvk bxhh etcx fdvu";
+                    "nfcw rehf ivdo tyzy";
 
 
             // =================================================

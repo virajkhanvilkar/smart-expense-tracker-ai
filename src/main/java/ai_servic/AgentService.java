@@ -13,8 +13,8 @@ import java.net.http.HttpResponse;
 import java.util.List;
 
 import java.util.Map;
-
-
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import model.Income;
 
@@ -22,4662 +22,3771 @@ import tool.TransactionTool;
 
 public class AgentService {
 
-    private final TransactionTool transactionTool;
+private final TransactionTool transactionTool;
 
 //    private static final String OLLAMA_URL =
+
 //
+
 //            "http://localhost:11434/api/chat";
 
-    
-    private static final String OLLAMA_URL =
-            "http://127.0.0.1:11450/api/chat";
+private static final String OLLAMA_URL =
 
-    private static final String MODEL =
+"http://127.0.0.1:11450/api/chat";
 
-            "qwen3:latest";
+private static final String MODEL =
 
-    private final HttpClient httpClient;
+"qwen3:latest";
 
+private final HttpClient httpClient;
 
+// ============================================================
 
+// CONSTRUCTOR
 
+// ============================================================
 
+public AgentService() {
 
+transactionTool =
 
+new TransactionTool();
 
+httpClient =
 
-    // ============================================================
+HttpClient.newHttpClient();
 
-    // CONSTRUCTOR
+}
 
-    // ============================================================
+// ============================================================
 
-    public AgentService() {
+// MAIN AGENT METHOD
 
-        transactionTool =
+// ============================================================
 
-                new TransactionTool();
+public String processQuestion(
 
-        httpClient =
+int userId,
 
-                HttpClient.newHttpClient();
+String question)
 
+throws Exception {
+
+if (question == null ||
+
+question.trim().isEmpty()) {
+
+return "Please enter a financial question.";
+
+}
+
+question =
+
+question.trim();
+
+// ========================================================
+
+// STEP 1 - DETECT INTENT
+
+// ========================================================
+
+String intent =
+
+detectIntent(question);
+
+System.out.println(
+
+"========================================"
+
+);
+
+System.out.println(
+
+"AI Question: " + question
+
+);
+
+System.out.println(
+
+"Logged-in User ID: " + userId
+
+);
+
+System.out.println(
+
+"AI detected intent: " + intent
+
+);
+
+System.out.println(
+
+"========================================"
+
+);
+
+// ========================================================
+
+// STEP 2 - EXECUTE ACTION
+
+// ========================================================
+
+String financialData;
+
+switch (intent) {
+
+// ====================================================
+
+// TOTAL INCOME
+
+// ====================================================
+
+case "TOTAL_INCOME":
+
+financialData =
+
+"Total income: ₹"
+
++ format(
+
+transactionTool
+
+.getTotalIncome(
+
+userId
+
+)
+
+);
+
+break;
+
+// ====================================================
+
+// TOTAL EXPENSE
+
+// ====================================================
+
+case "TOTAL_EXPENSE":
+
+financialData =
+
+"Total expense: ₹"
+
++ format(
+
+transactionTool
+
+.getTotalExpense(
+
+userId
+
+)
+
+);
+
+break;
+
+// ====================================================
+
+// TRANSACTION COUNT
+
+// ====================================================
+
+case "TRANSACTION_COUNT":
+
+financialData =
+
+"Total transactions: "
+
++ transactionTool
+
+.getTransactionCount(
+
+userId
+
+);
+
+break;
+
+// ====================================================
+
+// CATEGORY SPENDING
+
+// ====================================================
+
+case "CATEGORY_SPENDING":
+
+List<Map<String, Object>> categories =
+
+transactionTool
+
+.getCategoryWiseExpense(
+
+userId
+
+);
+
+financialData =
+
+categories.toString();
+
+break;
+
+// ====================================================
+
+// HIGHEST EXPENSES
+
+// ====================================================
+
+case "HIGHEST_EXPENSES":
+
+List<Map<String, Object>> highest =
+
+transactionTool
+
+.getHighestExpenses(
+
+userId,
+
+5
+
+);
+
+financialData =
+
+highest.toString();
+
+break;
+
+// ====================================================
+
+// RECENT TRANSACTIONS
+
+// ====================================================
+
+case "RECENT_TRANSACTIONS":
+
+List<Map<String, Object>> recent =
+
+transactionTool
+
+.getRecentTransactions(
+
+userId,
+
+10
+
+);
+
+financialData =
+
+recent.toString();
+
+break;
+
+// ====================================================
+
+// FINANCIAL SUMMARY
+
+// ====================================================
+
+case "EXPENSES_BELOW_AMOUNT": {
+    double threshold = extractFirstAmount(question);
+    if (threshold <= 0) {
+        return "Please specify a valid amount, for example: expenses below 500.";
     }
+    List<Map<String, Object>> below = transactionTool.getExpensesBelowAmount(userId, threshold);
+    financialData = "Expenses below ₹" + format(threshold) + ": " + below;
+    break;
+}
 
+case "LOWEST_EXPENSES": {
+    int days = extractDays(question, 10);
+    List<Map<String, Object>> lowest = transactionTool.getLowestExpensesLastDays(userId, days, 10);
+    financialData = "Lowest expenses in the last " + days + " days: " + lowest;
+    break;
+}
 
+case "FINANCIAL_SUMMARY":
 
+Map<String, Object> summary =
 
+transactionTool
 
+.getFinancialSummary(
 
+userId
 
+);
 
+financialData =
 
-    // ============================================================
+summary.toString();
 
-    // MAIN AGENT METHOD
+break;
 
-    // ============================================================
+// ====================================================
 
-    public String processQuestion(
+// ADD INCOME
 
-            int userId,
+// ====================================================
 
-            String question)
+case "ADD_INCOME":
 
-            throws Exception {
+String[] incomeDetails =
 
-        if (question == null ||
+extractIncomeDetails(
 
-                question.trim().isEmpty()) {
+question
 
-            return "Please enter a financial question.";
+);
 
-        }
+String incomeCategory =
 
-        question =
+incomeDetails[0];
 
-                question.trim();
+double incomeAmount =
 
+Double.parseDouble(
 
+incomeDetails[1]
 
+);
 
+String incomeDescription =
 
+incomeDetails[2];
 
+// ------------------------------------------------
 
+// VALIDATE AMOUNT
 
+// ------------------------------------------------
 
-        // ========================================================
+if (incomeAmount <= 0) {
 
-        // STEP 1 - DETECT INTENT
+return
 
-        // ========================================================
+"Please provide a valid income amount.";
 
-        String intent =
+}
 
-                detectIntent(question);
+// ------------------------------------------------
 
+// FIND REAL DATABASE CATEGORY
 
+// ------------------------------------------------
 
+String incomeDatabaseCategory =
 
+transactionTool
 
+.findCategoryFromQuestion(
 
+userId,
 
+question
 
+);
 
-        System.out.println(
+if (incomeDatabaseCategory != null &&
 
-                "========================================"
+!incomeDatabaseCategory
 
-        );
+.trim()
 
-        System.out.println(
+.isEmpty()) {
 
-                "AI Question: " + question
+incomeCategory =
 
-        );
+incomeDatabaseCategory;
 
-        System.out.println(
+System.out.println(
 
-                "Logged-in User ID: " + userId
+"INCOME CATEGORY CORRECTED: "
 
-        );
++ incomeCategory
 
-        System.out.println(
+);
 
-                "AI detected intent: " + intent
+}
 
-        );
+// ------------------------------------------------
 
-        System.out.println(
+// DEFAULT CATEGORY
 
-                "========================================"
+// ------------------------------------------------
 
-        );
+if (incomeCategory == null ||
 
+incomeCategory
 
+.trim()
 
+.isEmpty()) {
 
+incomeCategory =
 
+"Other";
 
+}
 
+// ------------------------------------------------
 
+// DEFAULT DESCRIPTION
 
-        // ========================================================
+// ------------------------------------------------
 
-        // STEP 2 - EXECUTE ACTION
+if (incomeDescription == null ||
 
-        // ========================================================
+incomeDescription
 
-        String financialData;
+.trim()
 
+.isEmpty()) {
 
+incomeDescription =
 
+incomeCategory
 
++ " income";
 
+}
 
+System.out.println(
 
+"========================================"
 
+);
 
-        switch (intent) {
+System.out.println(
 
+"AI ADD INCOME"
 
+);
 
+System.out.println(
 
+"User ID      : "
 
++ userId
 
+);
 
+System.out.println(
 
+"Category     : ["
 
-            // ====================================================
++ incomeCategory
 
-            // TOTAL INCOME
++ "]"
 
-            // ====================================================
+);
 
-            case "TOTAL_INCOME":
+System.out.println(
 
-                financialData =
+"Description  : ["
 
-                        "Total income: ₹"
++ incomeDescription
 
-                                + format(
++ "]"
 
-                                        transactionTool
+);
 
-                                                .getTotalIncome(
+System.out.println(
 
-                                                        userId
+"Amount       : "
 
-                                                )
++ incomeAmount
 
-                                );
+);
 
-                break;
+System.out.println(
 
+"========================================"
 
+);
 
+// ------------------------------------------------
 
+// INSERT INCOME
 
+// ------------------------------------------------
 
+boolean incomeAdded =
 
+transactionTool
 
+.addIncome(
 
-            // ====================================================
+userId,
 
-            // TOTAL EXPENSE
+incomeCategory,
 
-            // ====================================================
+incomeDescription,
 
-            case "TOTAL_EXPENSE":
+incomeAmount
 
-                financialData =
+);
 
-                        "Total expense: ₹"
+if (incomeAdded) {
 
-                                + format(
+return
 
-                                        transactionTool
+"✅ Added ₹"
 
-                                                .getTotalExpense(
++ format(
 
-                                                        userId
+incomeAmount
 
-                                                )
+)
 
-                                );
++ " income in "
 
-                break;
++ incomeCategory
 
++ " ("
 
++ incomeDescription
 
++ ").";
 
+} else {
 
+return
 
+"❌ I could not add the income.";
 
+}
 
+// ====================================================
 
-            // ====================================================
+// UPDATE INCOME
 
-            // TRANSACTION COUNT
+// ====================================================
 
-            // ====================================================
+case "UPDATE_INCOME":
 
-            case "TRANSACTION_COUNT":
+String[] updateIncomeDetails =
 
-                financialData =
+extractUpdateIncomeDetails(
 
-                        "Total transactions: "
+question
 
-                                + transactionTool
+);
 
-                                        .getTransactionCount(
+String updateIncomeIdText =
 
-                                                userId
+updateIncomeDetails[0];
 
-                                        );
+String oldIncomeAmountText =
 
-                break;
+updateIncomeDetails[1];
 
+String updateIncomeCategory =
 
+updateIncomeDetails[2];
 
+double updateIncomeAmount =
 
+Double.parseDouble(
 
+updateIncomeDetails[3]
 
+);
 
+String updateIncomeDescription =
 
+updateIncomeDetails[4];
 
-            // ====================================================
+// ------------------------------------------------
 
-            // CATEGORY SPENDING
+// FIND INCOME ID
 
-            // ====================================================
+// ------------------------------------------------
 
-            case "CATEGORY_SPENDING":
+int updateIncomeId = -1;
 
-                List<Map<String, Object>> categories =
+if (updateIncomeIdText != null &&
 
-                        transactionTool
+!updateIncomeIdText.trim().isEmpty()) {
 
-                                .getCategoryWiseExpense(
+updateIncomeId =
 
-                                        userId
+Integer.parseInt(
 
-                                );
+updateIncomeIdText
 
-                financialData =
+);
 
-                        categories.toString();
+}
 
-                break;
+// ------------------------------------------------
 
+// NO ID:
 
+// FIND THE INCOME USING THE OLD AMOUNT
 
+// ------------------------------------------------
 
+if (updateIncomeId <= 0) {
 
+if (oldIncomeAmountText == null ||
 
+oldIncomeAmountText.trim().isEmpty()) {
 
+return
 
+"Please provide an income ID or the old income amount.";
 
-            // ====================================================
+}
 
-            // HIGHEST EXPENSES
+double oldIncomeAmount =
 
-            // ====================================================
+Double.parseDouble(
 
-            case "HIGHEST_EXPENSES":
+oldIncomeAmountText
 
-                List<Map<String, Object>> highest =
+);
 
-                        transactionTool
+Income existingIncome =
 
-                                .getHighestExpenses(
+transactionTool.findIncomeByAmount(
 
-                                        userId,
+userId,
 
-                                        5
+oldIncomeAmount
 
-                                );
+);
 
-                financialData =
+if (existingIncome == null) {
 
-                        highest.toString();
+return
 
-                break;
+"❌ No income found with amount ₹"
 
++ format(oldIncomeAmount)
 
++ ".";
 
+}
 
+updateIncomeId =
 
+existingIncome.getIncomeId();
 
+// Preserve existing values when the command
 
+// only changes the amount.
 
+if (updateIncomeCategory == null ||
 
-            // ====================================================
+updateIncomeCategory.trim().isEmpty()) {
 
-            // RECENT TRANSACTIONS
+updateIncomeCategory =
 
-            // ====================================================
+existingIncome.getCategoryName();
 
-            case "RECENT_TRANSACTIONS":
+}
 
-                List<Map<String, Object>> recent =
+if (updateIncomeDescription == null ||
 
-                        transactionTool
+updateIncomeDescription.trim().isEmpty()) {
 
-                                .getRecentTransactions(
+updateIncomeDescription =
 
-                                        userId,
+existingIncome.getDescription();
 
-                                        10
+}
 
-                                );
+System.out.println(
 
-                financialData =
+"INCOME FOUND BY OLD AMOUNT: "
 
-                        recent.toString();
++ oldIncomeAmount
 
-                break;
+);
 
+System.out.println(
 
+"MATCHED INCOME ID: "
 
++ updateIncomeId
 
+);
 
+}
 
+// ------------------------------------------------
 
+// VALIDATE ID
 
+// ------------------------------------------------
 
-            // ====================================================
+if (updateIncomeId <= 0) {
 
-            // FINANCIAL SUMMARY
+return
 
-            // ====================================================
+"Please provide a valid income ID.";
 
-            case "FINANCIAL_SUMMARY":
+}
 
-                Map<String, Object> summary =
+// ------------------------------------------------
 
-                        transactionTool
+// VALIDATE NEW AMOUNT
 
-                                .getFinancialSummary(
+// ------------------------------------------------
 
-                                        userId
+if (updateIncomeAmount <= 0) {
 
-                                );
+return
 
-                financialData =
+"Please provide a valid income amount.";
 
-                        summary.toString();
+}
 
-                break;
+// ------------------------------------------------
 
+// FIND DATABASE CATEGORY ONLY WHEN PROVIDED
 
+// ------------------------------------------------
 
+String updateIncomeDatabaseCategory =
 
+transactionTool
 
+.findCategoryFromQuestion(
 
+userId,
 
+question
 
+);
 
-            // ====================================================
+if (updateIncomeDatabaseCategory != null &&
 
-            // ADD INCOME
+!updateIncomeDatabaseCategory
 
-            // ====================================================
+.trim()
 
-            case "ADD_INCOME":
+.isEmpty()) {
 
-                String[] incomeDetails =
+updateIncomeCategory =
 
-                        extractIncomeDetails(
+updateIncomeDatabaseCategory;
 
-                                question
+System.out.println(
 
-                        );
+"UPDATE INCOME CATEGORY CORRECTED: "
 
++ updateIncomeCategory
 
+);
 
+}
 
+// Empty values are intentionally passed through.
 
+// TransactionTool will preserve the old values.
 
+if (updateIncomeCategory != null &&
 
+updateIncomeCategory.trim().isEmpty()) {
 
+updateIncomeCategory = null;
 
-                String incomeCategory =
+}
 
-                        incomeDetails[0];
+if (updateIncomeDescription != null &&
 
+updateIncomeDescription.trim().isEmpty()) {
 
+updateIncomeDescription = null;
 
+}
 
+System.out.println(
 
+"========================================"
 
+);
 
+System.out.println(
 
+"AI UPDATE INCOME"
 
-                double incomeAmount =
+);
 
-                        Double.parseDouble(
+System.out.println(
 
-                                incomeDetails[1]
+"User ID      : "
 
-                        );
++ userId
 
+);
 
+System.out.println(
 
+"Income ID    : "
 
++ updateIncomeId
 
+);
 
+System.out.println(
 
+"Old Amount   : "
 
++ (
 
-                String incomeDescription =
+oldIncomeAmountText == null ||
 
-                        incomeDetails[2];
+oldIncomeAmountText.trim().isEmpty()
 
+? "Not provided"
 
+: oldIncomeAmountText
 
+)
 
+);
 
+System.out.println(
 
+"Category     : ["
 
++ updateIncomeCategory
 
++ "]"
 
-                // ------------------------------------------------
+);
 
-                // VALIDATE AMOUNT
+System.out.println(
 
-                // ------------------------------------------------
+"Description  : ["
 
-                if (incomeAmount <= 0) {
++ updateIncomeDescription
 
-                    return
++ "]"
 
-                            "Please provide a valid income amount.";
+);
 
-                }
+System.out.println(
 
+"New Amount   : "
 
++ updateIncomeAmount
 
+);
 
+System.out.println(
 
+"========================================"
 
+);
 
+boolean incomeUpdated =
 
+transactionTool
 
-                // ------------------------------------------------
+.updateIncome(
 
-                // FIND REAL DATABASE CATEGORY
+userId,
 
-                // ------------------------------------------------
+updateIncomeId,
 
-                String incomeDatabaseCategory =
+updateIncomeCategory,
 
-                        transactionTool
+updateIncomeDescription,
 
-                                .findCategoryFromQuestion(
+updateIncomeAmount
 
-                                        userId,
+);
 
-                                        question
+if (incomeUpdated) {
 
-                                );
+return
 
+"✅ Income "
 
++ updateIncomeId
 
++ " updated successfully to ₹"
 
++ format(updateIncomeAmount)
 
++ ".";
 
+} else {
 
+return
 
+"❌ Income "
 
-                if (incomeDatabaseCategory != null &&
++ updateIncomeId
 
-                        !incomeDatabaseCategory
++ " was not found or could not be updated.";
 
-                                .trim()
+}
 
-                                .isEmpty()) {
+// ====================================================
 
-                    incomeCategory =
+// ADD EXPENSE
 
-                            incomeDatabaseCategory;
+// ====================================================
 
-                    System.out.println(
+case "ADD_EXPENSE":
 
-                            "INCOME CATEGORY CORRECTED: "
+String[] expenseDetails =
 
-                                    + incomeCategory
+extractExpenseDetails(
 
-                    );
+question
 
-                }
+);
 
+String category =
 
+expenseDetails[0];
 
+double amount =
 
+Double.parseDouble(
 
+expenseDetails[1]
 
+);
 
+String description =
 
+expenseDetails[2];
 
-                // ------------------------------------------------
+// ------------------------------------------------
 
-                // DEFAULT CATEGORY
+// VALIDATE AMOUNT
 
-                // ------------------------------------------------
+// ------------------------------------------------
 
-                if (incomeCategory == null ||
+if (amount <= 0) {
 
-                        incomeCategory
+return
 
-                                .trim()
+"Please provide a valid expense amount.";
 
-                                .isEmpty()) {
+}
 
-                    incomeCategory =
+// ------------------------------------------------
 
-                            "Other";
+// IMPORTANT CATEGORY FIX
 
-                }
+// ------------------------------------------------
 
+String databaseCategory =
 
+transactionTool
 
+.findCategoryFromQuestion(
 
+userId,
 
+question
 
+);
 
+if (databaseCategory != null &&
 
+!databaseCategory
 
-                // ------------------------------------------------
+.trim()
 
-                // DEFAULT DESCRIPTION
+.isEmpty()) {
 
-                // ------------------------------------------------
+category =
 
-                if (incomeDescription == null ||
+databaseCategory;
 
-                        incomeDescription
+System.out.println(
 
-                                .trim()
+"CATEGORY CORRECTED FROM DATABASE"
 
-                                .isEmpty()) {
+);
 
-                    incomeDescription =
+System.out.println(
 
-                            incomeCategory
+"Category: "
 
-                                    + " income";
++ category
 
-                }
+);
 
+}
 
+// ------------------------------------------------
 
+// DEFAULT CATEGORY
 
+// ------------------------------------------------
 
+if (category == null ||
 
+category.trim().isEmpty()) {
 
+category =
 
+"Other";
 
-                System.out.println(
+}
 
-                        "========================================"
+// ------------------------------------------------
 
-                );
+// DEFAULT DESCRIPTION
 
-                System.out.println(
+// ------------------------------------------------
 
-                        "AI ADD INCOME"
+if (description == null ||
 
-                );
+description.trim().isEmpty()) {
 
-                System.out.println(
+description =
 
-                        "User ID      : "
+category
 
-                                + userId
++ " expense";
 
-                );
+}
 
-                System.out.println(
+System.out.println(
 
-                        "Category     : ["
+"========================================"
 
-                                + incomeCategory
+);
 
-                                + "]"
+System.out.println(
 
-                );
+"AI ADD EXPENSE"
 
-                System.out.println(
+);
 
-                        "Description  : ["
+System.out.println(
 
-                                + incomeDescription
+"User ID      : "
 
-                                + "]"
++ userId
 
-                );
+);
 
-                System.out.println(
+System.out.println(
 
-                        "Amount       : "
+"Category     : ["
 
-                                + incomeAmount
++ category
 
-                );
++ "]"
 
-                System.out.println(
+);
 
-                        "========================================"
+System.out.println(
 
-                );
+"Description  : ["
 
++ description
 
++ "]"
 
+);
 
+System.out.println(
 
+"Amount       : "
 
++ amount
 
+);
 
+System.out.println(
 
-                // ------------------------------------------------
+"========================================"
 
-                // INSERT INCOME
+);
 
-                // ------------------------------------------------
+// ------------------------------------------------
 
-                boolean incomeAdded =
+// INSERT
 
-                        transactionTool
+// ------------------------------------------------
 
-                                .addIncome(
+boolean added =
 
-                                        userId,
+transactionTool
 
-                                        incomeCategory,
+.addExpense(
 
-                                        incomeDescription,
+userId,
 
-                                        incomeAmount
+category,
 
-                                );
+description,
 
+amount
 
+);
 
+if (added) {
 
+return
 
+"✅ Added ₹"
 
++ format(amount)
 
++ " expense in "
 
++ category
 
-                if (incomeAdded) {
++ " ("
 
-                    return
++ description
 
-                            "✅ Added ₹"
++ ").";
 
-                                    + format(
+} else {
 
-                                            incomeAmount
+return
 
-                                    )
+"❌ I could not add the expense.";
 
-                                    + " income in "
+}
 
-                                    + incomeCategory
+// ====================================================
 
-                                    + " ("
+// UPDATE EXPENSE
 
-                                    + incomeDescription
+// ====================================================
 
-                                    + ").";
+case "UPDATE_EXPENSE":
 
-                } else {
+String[] updateDetails = extractUpdateExpenseDetails(question);
 
-                    return
+String updateExpenseIdText = updateDetails[0];
 
-                            "❌ I could not add the income.";
+String updateCategory = updateDetails[1];
 
-                }
+String oldExpenseAmountText = updateDetails[2];
 
+String newExpenseAmountText = updateDetails[3];
 
+String updateDescription = updateDetails[4];
 
+int updateExpenseId = -1;
 
+if (updateExpenseIdText != null && !updateExpenseIdText.trim().isEmpty()) {
 
+try {
 
+updateExpenseId = Integer.parseInt(updateExpenseIdText.trim());
 
+} catch (NumberFormatException e) {
 
+return "Please provide a valid expense ID.";
 
-            // ====================================================
+}
 
-            // UPDATE INCOME
+}
 
-            // ====================================================
+if (newExpenseAmountText == null || newExpenseAmountText.trim().isEmpty()) {
 
-            case "UPDATE_INCOME":
+return "Please provide the new expense amount.";
 
-                String[] updateIncomeDetails =
+}
 
-                        extractUpdateIncomeDetails(
+double updateAmount;
 
-                                question
+try {
 
-                        );
+updateAmount = Double.parseDouble(newExpenseAmountText.trim());
 
-                String updateIncomeIdText =
+} catch (NumberFormatException e) {
 
-                        updateIncomeDetails[0];
+return "Please provide a valid new expense amount.";
 
-                String oldIncomeAmountText =
+}
 
-                        updateIncomeDetails[1];
+if (updateAmount <= 0) {
 
-                String updateIncomeCategory =
+return "Please provide a valid expense amount.";
 
-                        updateIncomeDetails[2];
+}
 
-                double updateIncomeAmount =
+String updateDatabaseCategory =
 
-                        Double.parseDouble(
+transactionTool.findCategoryFromQuestion(userId, question);
 
-                                updateIncomeDetails[3]
+if (updateDatabaseCategory != null && !updateDatabaseCategory.trim().isEmpty()) {
 
-                        );
+updateCategory = updateDatabaseCategory.trim();
 
-                String updateIncomeDescription =
+System.out.println("UPDATE CATEGORY CORRECTED: " + updateCategory);
 
-                        updateIncomeDetails[4];
+}
 
-                // ------------------------------------------------
+// If the user gave an explicit expense ID but did not provide a
 
-                // FIND INCOME ID
+// category, preserve the existing category instead of changing it
 
-                // ------------------------------------------------
+// to Other.
 
-                int updateIncomeId = -1;
+if (updateExpenseId > 0 &&
 
-                if (updateIncomeIdText != null &&
+(updateDatabaseCategory == null || updateDatabaseCategory.trim().isEmpty())) {
 
-                        !updateIncomeIdText.trim().isEmpty()) {
+String existingCategory = findExpenseCategoryById(userId, updateExpenseId);
 
-                    updateIncomeId =
+if (existingCategory != null && !existingCategory.trim().isEmpty()) {
 
-                            Integer.parseInt(
+updateCategory = existingCategory.trim();
 
-                                    updateIncomeIdText
+System.out.println("EXISTING CATEGORY PRESERVED: " + updateCategory);
 
-                            );
+}
 
-                }
+}
 
-                // ------------------------------------------------
+// No explicit ID: find the actual expense using category + old amount.
 
-                // NO ID:
+if (updateExpenseId <= 0) {
 
-                // FIND THE INCOME USING THE OLD AMOUNT
+if (oldExpenseAmountText == null || oldExpenseAmountText.trim().isEmpty()) {
 
-                // ------------------------------------------------
+return "Please provide an expense ID or the old expense amount. Example: update bike expense 500 to 200";
 
-                if (updateIncomeId <= 0) {
+}
 
-                    if (oldIncomeAmountText == null ||
+double oldExpenseAmount;
 
-                            oldIncomeAmountText.trim().isEmpty()) {
+try {
 
-                        return
+oldExpenseAmount = Double.parseDouble(oldExpenseAmountText.trim());
 
-                                "Please provide an income ID or the old income amount.";
+} catch (NumberFormatException e) {
 
-                    }
+return "Please provide a valid old expense amount.";
 
-                    double oldIncomeAmount =
+}
 
-                            Double.parseDouble(
+updateExpenseId = findExpenseIdByCategoryAndAmount(
 
-                                    oldIncomeAmountText
+userId, updateCategory, oldExpenseAmount);
 
-                            );
+if (updateExpenseId <= 0) {
 
-                    Income existingIncome =
+return "❌ No expense found in category " + updateCategory
 
-                            transactionTool.findIncomeByAmount(
++ " with amount ₹" + format(oldExpenseAmount) + ".";
 
-                                    userId,
+}
 
-                                    oldIncomeAmount
+System.out.println("EXPENSE FOUND BY CATEGORY + OLD AMOUNT");
 
-                            );
+System.out.println("Category    : " + updateCategory);
 
-                    if (existingIncome == null) {
+System.out.println("Old Amount  : " + oldExpenseAmount);
 
-                        return
+System.out.println("Matched ID  : " + updateExpenseId);
 
-                                "❌ No income found with amount ₹"
+}
 
-                                        + format(oldIncomeAmount)
+if (updateCategory == null || updateCategory.trim().isEmpty()) {
 
-                                        + ".";
+updateCategory = "Other";
 
-                    }
+}
 
-                    updateIncomeId =
+if (updateDescription == null || updateDescription.trim().isEmpty()) {
 
-                            existingIncome.getIncomeId();
+updateDescription = updateCategory + " expense";
 
-                    // Preserve existing values when the command
+}
 
-                    // only changes the amount.
+System.out.println("========================================");
 
-                    if (updateIncomeCategory == null ||
+System.out.println("AI UPDATE EXPENSE");
 
-                            updateIncomeCategory.trim().isEmpty()) {
+System.out.println("User ID      : " + userId);
 
-                        updateIncomeCategory =
+System.out.println("Expense ID   : " + updateExpenseId);
 
-                                existingIncome.getCategoryName();
+System.out.println("Old Amount   : " +
 
-                    }
+(oldExpenseAmountText == null || oldExpenseAmountText.trim().isEmpty()
 
-                    if (updateIncomeDescription == null ||
+? "Not provided" : oldExpenseAmountText));
 
-                            updateIncomeDescription.trim().isEmpty()) {
+System.out.println("Category     : [" + updateCategory + "]");
 
-                        updateIncomeDescription =
+System.out.println("Description  : [" + updateDescription + "]");
 
-                                existingIncome.getDescription();
+System.out.println("New Amount   : " + updateAmount);
 
-                    }
+System.out.println("========================================");
 
-                    System.out.println(
+boolean updated = transactionTool.updateExpense(
 
-                            "INCOME FOUND BY OLD AMOUNT: "
+userId, updateExpenseId, updateCategory,
 
-                                    + oldIncomeAmount
+updateDescription, updateAmount);
 
-                    );
+if (updated) {
 
-                    System.out.println(
+if (oldExpenseAmountText != null && !oldExpenseAmountText.trim().isEmpty()) {
 
-                            "MATCHED INCOME ID: "
+return "✅ Expense " + updateExpenseId + " (" + updateCategory
 
-                                    + updateIncomeId
++ ") updated from ₹"
 
-                    );
++ format(Double.parseDouble(oldExpenseAmountText))
 
-                }
++ " to ₹" + format(updateAmount) + ".";
 
-                // ------------------------------------------------
+}
 
-                // VALIDATE ID
+return "✅ Expense " + updateExpenseId
 
-                // ------------------------------------------------
++ " updated successfully to ₹" + format(updateAmount) + ".";
 
-                if (updateIncomeId <= 0) {
+} else {
 
-                    return
+return "❌ Expense " + updateExpenseId
 
-                            "Please provide a valid income ID.";
++ " was not found or could not be updated.";
 
-                }
+}
 
-                // ------------------------------------------------
+// DELETE EXPENSE
 
-                // VALIDATE NEW AMOUNT
+// ====================================================
 
-                // ------------------------------------------------
+case "DELETE_TRANSACTION":
 
-                if (updateIncomeAmount <= 0) {
+int expenseId =
 
-                    return
+extractTransactionId(
 
-                            "Please provide a valid income amount.";
+question
 
-                }
+);
 
-                // ------------------------------------------------
+if (expenseId <= 0) {
 
-                // FIND DATABASE CATEGORY ONLY WHEN PROVIDED
+return
 
-                // ------------------------------------------------
+"Please provide a valid expense ID.";
 
-                String updateIncomeDatabaseCategory =
+}
 
-                        transactionTool
+System.out.println(
 
-                                .findCategoryFromQuestion(
+"========================================"
 
-                                        userId,
+);
 
-                                        question
+System.out.println(
 
-                                );
+"AI DELETE EXPENSE"
 
-                if (updateIncomeDatabaseCategory != null &&
+);
 
-                        !updateIncomeDatabaseCategory
+System.out.println(
 
-                                .trim()
+"User ID    : "
 
-                                .isEmpty()) {
++ userId
 
-                    updateIncomeCategory =
+);
 
-                            updateIncomeDatabaseCategory;
+System.out.println(
 
-                    System.out.println(
+"Expense ID : "
 
-                            "UPDATE INCOME CATEGORY CORRECTED: "
++ expenseId
 
-                                    + updateIncomeCategory
+);
 
-                    );
+System.out.println(
 
-                }
+"========================================"
 
-                // Empty values are intentionally passed through.
+);
 
-                // TransactionTool will preserve the old values.
+// ------------------------------------------------
 
-                if (updateIncomeCategory != null &&
+// DELETE
 
-                        updateIncomeCategory.trim().isEmpty()) {
+// ------------------------------------------------
 
-                    updateIncomeCategory = null;
+boolean deleted =
 
-                }
+transactionTool
 
-                if (updateIncomeDescription != null &&
+.deleteExpense(
 
-                        updateIncomeDescription.trim().isEmpty()) {
+userId,
 
-                    updateIncomeDescription = null;
+expenseId
 
-                }
+);
 
-                System.out.println(
+if (deleted) {
 
-                        "========================================"
+return
 
-                );
+"✅ Expense "
 
-                System.out.println(
++ expenseId
 
-                        "AI UPDATE INCOME"
++ " deleted successfully.";
 
-                );
+} else {
 
-                System.out.println(
+return
 
-                        "User ID      : "
+"❌ Expense "
 
-                                + userId
++ expenseId
 
-                );
++ " was not found or could not be deleted.";
 
-                System.out.println(
+}
 
-                        "Income ID    : "
+// ====================================================
 
-                                + updateIncomeId
+// DEFAULT
 
-                );
+// ====================================================
 
-                System.out.println(
+default:
 
-                        "Old Amount   : "
+financialData =
 
-                                + (
+"No financial database tool was required.";
 
-                                    oldIncomeAmountText == null ||
+break;
 
-                                    oldIncomeAmountText.trim().isEmpty()
+}
 
-                                    ? "Not provided"
+// ========================================================
 
-                                    : oldIncomeAmountText
+// STEP 3 - GENERATE FINAL AI RESPONSE
 
-                                )
+// ========================================================
 
-                );
+return generateFinalAnswer(
 
-                System.out.println(
+question,
 
-                        "Category     : ["
+financialData
 
-                                + updateIncomeCategory
+);
 
-                                + "]"
+}
 
-                );
+// ============================================================
 
-                System.out.println(
+// INTENT DETECTION
 
-                        "Description  : ["
+// ============================================================
 
-                                + updateIncomeDescription
+private String detectIntent(
 
-                                + "]"
+String question)
 
-                );
+throws Exception {
 
-                System.out.println(
+String lower =
 
-                        "New Amount   : "
+question
 
-                                + updateIncomeAmount
+.toLowerCase()
 
-                );
+.trim();
 
-                System.out.println(
+// ========================================================
 
-                        "========================================"
+// DIRECT ADD INCOME DETECTION
 
-                );
+// ========================================================
 
-                boolean incomeUpdated =
+if (looksLikeAddIncome(lower)) {
 
-                        transactionTool
+return "ADD_INCOME";
 
-                                .updateIncome(
+}
 
-                                        userId,
+// ========================================================
 
-                                        updateIncomeId,
+// DIRECT UPDATE INCOME DETECTION
 
-                                        updateIncomeCategory,
+// ========================================================
 
-                                        updateIncomeDescription,
+if (looksLikeUpdateIncome(lower)) {
 
-                                        updateIncomeAmount
+return "UPDATE_INCOME";
 
-                                );
+}
 
-                if (incomeUpdated) {
+// ========================================================
 
-                    return
+// DIRECT ADD EXPENSE DETECTION
 
-                            "✅ Income "
+// ========================================================
 
-                                    + updateIncomeId
+if (looksLikeAddExpense(lower)) {
 
-                                    + " updated successfully to ₹"
+return "ADD_EXPENSE";
 
-                                    + format(updateIncomeAmount)
+}
 
-                                    + ".";
+// ========================================================
 
-                } else {
+// DIRECT UPDATE EXPENSE DETECTION
 
-                    return
+// ========================================================
 
-                            "❌ Income "
+if (looksLikeUpdateExpense(lower)) {
 
-                                    + updateIncomeId
+return "UPDATE_EXPENSE";
 
-                                    + " was not found or could not be updated.";
+}
 
-                }
+// ========================================================
 
-            // ====================================================
+// DIRECT DELETE DETECTION
 
-            // ADD EXPENSE
+// ========================================================
 
-            // ====================================================
+if (looksLikeDeleteTransaction(lower)) {
 
-            case "ADD_EXPENSE":
+return "DELETE_TRANSACTION";
 
-                String[] expenseDetails =
+}
 
-                        extractExpenseDetails(
+// ========================================================
 
-                                question
+// Handle common read-only expense queries deterministically before calling Ollama.
+if (lower.matches(".*\\b(expenses?|spending|transactions?)\\b.*")
+        && lower.matches(".*\\b(below|under|less than|lesser than)\\b.*")) {
+    return "EXPENSES_BELOW_AMOUNT";
+}
+if (lower.matches(".*\\b(least|lowest|smallest|minimum|min)\\b.*")
+        && lower.matches(".*\\b(expenses?|spending|spent)\\b.*")) {
+    return "LOWEST_EXPENSES";
+}
 
-                        );
+// ASK QWEN
 
+// ========================================================
 
+String systemPrompt =
 
+"You are the tool-selection AI for a financial assistant.\n"
 
++ "Choose exactly ONE intent.\n\n"
 
++ "Available intents:\n"
 
++ "TOTAL_INCOME\n"
 
++ "TOTAL_EXPENSE\n"
 
++ "TRANSACTION_COUNT\n"
 
-                String category =
++ "CATEGORY_SPENDING\n"
 
-                        expenseDetails[0];
++ "HIGHEST_EXPENSES\n"
++ "EXPENSES_BELOW_AMOUNT\n"
++ "LOWEST_EXPENSES\n"
 
++ "RECENT_TRANSACTIONS\n"
 
++ "FINANCIAL_SUMMARY\n"
 
++ "ADD_INCOME\n"
 
++ "UPDATE_INCOME\n"
 
++ "ADD_EXPENSE\n"
 
++ "UPDATE_EXPENSE\n"
 
++ "DELETE_TRANSACTION\n"
 
++ "NONE\n\n"
 
-                double amount =
++ "Examples:\n"
 
-                        Double.parseDouble(
++ "How much did I earn -> TOTAL_INCOME\n"
 
-                                expenseDetails[1]
++ "How much did I spend -> TOTAL_EXPENSE\n"
 
-                        );
++ "Where do I spend most -> CATEGORY_SPENDING\n"
 
++ "What are my biggest expenses -> HIGHEST_EXPENSES\n"
++ "Show expenses below 500 -> EXPENSES_BELOW_AMOUNT\n"
++ "Show my least expenses in the last 10 days -> LOWEST_EXPENSES\n"
 
++ "Show recent transactions -> RECENT_TRANSACTIONS\n"
 
++ "How many transactions -> TRANSACTION_COUNT\n"
 
++ "Give me my financial summary -> FINANCIAL_SUMMARY\n"
 
+// INCOME
 
++ "Add income 10000 salary -> ADD_INCOME\n"
 
++ "Add salary income 25000 -> ADD_INCOME\n"
 
++ "I received 12000 salary -> ADD_INCOME\n"
 
-                String description =
++ "I earned 15000 from salary -> ADD_INCOME\n"
 
-                        expenseDetails[2];
++ "Add 20000 income and particular Salary -> ADD_INCOME\n"
 
++ "Update income 5 amount to 15000 -> UPDATE_INCOME\n"
 
++ "Edit income 5 amount to 20000 -> UPDATE_INCOME\n"
 
++ "Change income 7 to salary 25000 -> UPDATE_INCOME\n"
 
+// EXPENSE
 
++ "Add food expense 500 -> ADD_EXPENSE\n"
 
++ "Add food exp 500 -> ADD_EXPENSE\n"
 
++ "I spent 500 on food -> ADD_EXPENSE\n"
 
++ "Add 300 travel expense -> ADD_EXPENSE\n"
 
-                // ------------------------------------------------
++ "Add 500 exp and particular is Sarthak -> ADD_EXPENSE\n"
 
-                // VALIDATE AMOUNT
++ "Update expense 5 amount to 700 -> UPDATE_EXPENSE\n"
 
-                // ------------------------------------------------
++ "Edit expense 10 amount to 500 -> UPDATE_EXPENSE\n"
 
-                if (amount <= 0) {
++ "Change expense 7 to 1000 -> UPDATE_EXPENSE\n"
 
-                    return
+// DELETE
 
-                            "Please provide a valid expense amount.";
++ "Delete transaction 25 -> DELETE_TRANSACTION\n"
 
-                }
++ "Delete expense 25 -> DELETE_TRANSACTION\n"
 
++ "Remove transaction 25 -> DELETE_TRANSACTION\n\n"
 
++ "Return ONLY the intent name.\n"
 
++ "Do not explain anything.";
 
+String prompt =
 
+systemPrompt
 
++ "\n\nUser question:\n"
 
++ question;
 
+String response =
 
-                // ------------------------------------------------
+callOllama(prompt);
 
-                // IMPORTANT CATEGORY FIX
+response =
 
-                // ------------------------------------------------
+response
 
-                String databaseCategory =
+.trim()
 
-                        transactionTool
+.toUpperCase();
 
-                                .findCategoryFromQuestion(
+// ========================================================
 
-                                        userId,
+// VALIDATE AI RESPONSE
 
-                                        question
+// ========================================================
 
-                                );
+if (response.contains("ADD_INCOME")) {
 
+return "ADD_INCOME";
 
+}
 
+if (response.contains("UPDATE_INCOME")) {
 
+return "UPDATE_INCOME";
 
+}
 
+if (response.contains("ADD_EXPENSE")) {
 
+return "ADD_EXPENSE";
 
+}
 
-                if (databaseCategory != null &&
+if (response.contains("UPDATE_EXPENSE")) {
 
-                        !databaseCategory
+return "UPDATE_EXPENSE";
 
-                                .trim()
+}
 
-                                .isEmpty()) {
+if (response.contains("DELETE_TRANSACTION")) {
 
-                    category =
+return "DELETE_TRANSACTION";
 
-                            databaseCategory;
+}
 
-                    System.out.println(
+if (response.contains("TOTAL_INCOME")) {
 
-                            "CATEGORY CORRECTED FROM DATABASE"
+return "TOTAL_INCOME";
 
-                    );
+}
 
-                    System.out.println(
+if (response.contains("TOTAL_EXPENSE")) {
 
-                            "Category: "
+return "TOTAL_EXPENSE";
 
-                                    + category
+}
 
-                    );
+if (response.contains("TRANSACTION_COUNT")) {
 
-                }
+return "TRANSACTION_COUNT";
 
+}
 
+if (response.contains("CATEGORY_SPENDING")) {
 
+return "CATEGORY_SPENDING";
 
+}
 
+if (response.contains("HIGHEST_EXPENSES")) {
 
+return "HIGHEST_EXPENSES";
 
+}
 
+if (response.contains("RECENT_TRANSACTIONS")) {
 
-                // ------------------------------------------------
+return "RECENT_TRANSACTIONS";
 
-                // DEFAULT CATEGORY
+}
 
-                // ------------------------------------------------
+if (response.contains("FINANCIAL_SUMMARY")) {
 
-                if (category == null ||
+return "FINANCIAL_SUMMARY";
 
-                        category.trim().isEmpty()) {
+}
 
-                    category =
+return "NONE";
 
-                            "Other";
+}
 
-                }
+// ============================================================
 
+// CHECK ADD INCOME COMMAND
 
+// ============================================================
 
+private boolean looksLikeAddIncome(
 
+String question) {
 
+boolean hasAddOrReceive =
 
+question.contains("add")
 
+|| question.contains("received")
 
+|| question.contains("receive")
 
-                // ------------------------------------------------
+|| question.contains("earned")
 
-                // DEFAULT DESCRIPTION
+|| question.contains("earn")
 
-                // ------------------------------------------------
+|| question.contains("got");
 
-                if (description == null ||
+boolean hasIncome =
 
-                        description.trim().isEmpty()) {
+question.contains("income")
 
-                    description =
+|| question.contains("salary")
 
-                            category
+|| question.contains("earning")
 
-                                    + " expense";
+|| question.contains("payment");
 
-                }
+boolean hasMoney =
 
+question.matches(
 
+".*\\d+(\\.\\d+)?.*"
 
+);
 
+return hasAddOrReceive
 
+&& hasIncome
 
+&& hasMoney;
 
+}
 
+// ============================================================
 
-                System.out.println(
+// CHECK UPDATE INCOME COMMAND
 
-                        "========================================"
+// ============================================================
 
-                );
+private boolean looksLikeUpdateIncome(
 
-                System.out.println(
+String question) {
 
-                        "AI ADD EXPENSE"
+boolean hasUpdate =
 
-                );
+question.contains("update")
 
-                System.out.println(
+|| question.contains("edit")
 
-                        "User ID      : "
+|| question.contains("change")
 
-                                + userId
+|| question.contains("modify");
 
-                );
+boolean hasIncome =
 
-                System.out.println(
+question.contains("income")
 
-                        "Category     : ["
+|| question.contains("salary")
 
-                                + category
+|| question.contains("earning");
 
-                                + "]"
+boolean hasNumber =
 
-                );
+question.matches(
 
-                System.out.println(
+".*\\d+.*"
 
-                        "Description  : ["
+);
 
-                                + description
+return hasUpdate
 
-                                + "]"
+&& hasIncome
 
-                );
+&& hasNumber;
 
-                System.out.println(
+}
 
-                        "Amount       : "
+// ============================================================
 
-                                + amount
+// CHECK ADD EXPENSE COMMAND
 
-                );
+// ============================================================
 
-                System.out.println(
+private boolean looksLikeAddExpense(
 
-                        "========================================"
+String question) {
 
-                );
+boolean hasAddOrSpend =
 
+question.contains("add")
 
+|| question.contains("spent")
 
+|| question.contains("spend");
 
+boolean hasExpenseWord =
 
+question.contains("expense")
 
+|| question.contains("exp");
 
+boolean hasMoney =
 
+question.matches(
 
-                // ------------------------------------------------
+".*\\d+(\\.\\d+)?.*"
 
-                // INSERT
+);
 
-                // ------------------------------------------------
+return hasAddOrSpend
 
-                boolean added =
+&& hasExpenseWord
 
-                        transactionTool
+&& hasMoney;
 
-                                .addExpense(
+}
 
-                                        userId,
+// ============================================================
 
-                                        category,
+// CHECK UPDATE EXPENSE COMMAND
 
-                                        description,
+// ============================================================
 
-                                        amount
+private boolean looksLikeUpdateExpense(
 
-                                );
+String question) {
 
+boolean hasUpdate =
 
+question.contains("update")
 
+|| question.contains("edit")
 
+|| question.contains("change")
 
+|| question.contains("modify");
 
+boolean hasExpense =
 
+question.contains("expense")
 
+|| question.contains("transaction");
 
-                if (added) {
+boolean hasNumber =
 
-                    return
+question.matches(
 
-                            "✅ Added ₹"
+".*\\d+.*"
 
-                                    + format(amount)
+);
 
-                                    + " expense in "
+return hasUpdate
 
-                                    + category
+&& hasExpense
 
-                                    + " ("
+&& hasNumber;
 
-                                    + description
+}
 
-                                    + ").";
+// ============================================================
 
-                } else {
+// CHECK DELETE COMMAND
 
-                    return
+// ============================================================
 
-                            "❌ I could not add the expense.";
+private boolean looksLikeDeleteTransaction(
 
-                }
+String question) {
 
+boolean hasDelete =
 
+question.contains("delete")
 
+|| question.contains("remove");
 
+boolean hasTransaction =
 
+question.contains("transaction")
 
+|| question.contains("expense");
 
+boolean hasNumber =
 
+question.matches(
 
-            // ====================================================
+".*\\d+.*"
 
-            // UPDATE EXPENSE
+);
 
-            // ====================================================
+return hasDelete
 
-            case "UPDATE_EXPENSE":
+&& hasTransaction
 
-                String[] updateDetails = extractUpdateExpenseDetails(question);
+&& hasNumber;
 
-                String updateExpenseIdText = updateDetails[0];
-                String updateCategory = updateDetails[1];
-                String oldExpenseAmountText = updateDetails[2];
-                String newExpenseAmountText = updateDetails[3];
-                String updateDescription = updateDetails[4];
+}
 
-                int updateExpenseId = -1;
+// ============================================================
 
-                if (updateExpenseIdText != null && !updateExpenseIdText.trim().isEmpty()) {
-                    try {
-                        updateExpenseId = Integer.parseInt(updateExpenseIdText.trim());
-                    } catch (NumberFormatException e) {
-                        return "Please provide a valid expense ID.";
-                    }
-                }
+// EXTRACT INCOME DETAILS
 
-                if (newExpenseAmountText == null || newExpenseAmountText.trim().isEmpty()) {
-                    return "Please provide the new expense amount.";
-                }
+// ============================================================
 
-                double updateAmount;
-                try {
-                    updateAmount = Double.parseDouble(newExpenseAmountText.trim());
-                } catch (NumberFormatException e) {
-                    return "Please provide a valid new expense amount.";
-                }
+private String[] extractIncomeDetails(
 
-                if (updateAmount <= 0) {
-                    return "Please provide a valid expense amount.";
-                }
+String question)
 
-                String updateDatabaseCategory =
-                        transactionTool.findCategoryFromQuestion(userId, question);
+throws Exception {
 
-                if (updateDatabaseCategory != null && !updateDatabaseCategory.trim().isEmpty()) {
-                    updateCategory = updateDatabaseCategory.trim();
-                    System.out.println("UPDATE CATEGORY CORRECTED: " + updateCategory);
-                }
+String prompt =
 
-                // If the user gave an explicit expense ID but did not provide a
-                // category, preserve the existing category instead of changing it
-                // to Other.
-                if (updateExpenseId > 0 &&
-                        (updateDatabaseCategory == null || updateDatabaseCategory.trim().isEmpty())) {
-                    String existingCategory = findExpenseCategoryById(userId, updateExpenseId);
-                    if (existingCategory != null && !existingCategory.trim().isEmpty()) {
-                        updateCategory = existingCategory.trim();
-                        System.out.println("EXISTING CATEGORY PRESERVED: " + updateCategory);
-                    }
-                }
+"Extract income information from the user's message.\n\n"
 
-                // No explicit ID: find the actual expense using category + old amount.
-                if (updateExpenseId <= 0) {
-                    if (oldExpenseAmountText == null || oldExpenseAmountText.trim().isEmpty()) {
-                        return "Please provide an expense ID or the old expense amount. Example: update bike expense 500 to 200";
-                    }
++ "Return ONLY this exact format:\n"
 
-                    double oldExpenseAmount;
-                    try {
-                        oldExpenseAmount = Double.parseDouble(oldExpenseAmountText.trim());
-                    } catch (NumberFormatException e) {
-                        return "Please provide a valid old expense amount.";
-                    }
++ "CATEGORY|AMOUNT|DESCRIPTION\n\n"
 
-                    updateExpenseId = findExpenseIdByCategoryAndAmount(
-                            userId, updateCategory, oldExpenseAmount);
++ "IMPORTANT RULES:\n"
 
-                    if (updateExpenseId <= 0) {
-                        return "❌ No expense found in category " + updateCategory
-                                + " with amount ₹" + format(oldExpenseAmount) + ".";
-                    }
++ "1. Extract the numeric income amount.\n"
 
-                    System.out.println("EXPENSE FOUND BY CATEGORY + OLD AMOUNT");
-                    System.out.println("Category    : " + updateCategory);
-                    System.out.println("Old Amount  : " + oldExpenseAmount);
-                    System.out.println("Matched ID  : " + updateExpenseId);
-                }
++ "2. Extract the real income category.\n"
 
-                if (updateCategory == null || updateCategory.trim().isEmpty()) {
-                    updateCategory = "Other";
-                }
++ "3. Words such as income, earn, received, add are NOT categories.\n"
 
-                if (updateDescription == null || updateDescription.trim().isEmpty()) {
-                    updateDescription = updateCategory + " expense";
-                }
++ "4. If the user gives a category such as Salary, Business, Freelance, use it.\n"
 
-                System.out.println("========================================");
-                System.out.println("AI UPDATE EXPENSE");
-                System.out.println("User ID      : " + userId);
-                System.out.println("Expense ID   : " + updateExpenseId);
-                System.out.println("Old Amount   : " +
-                        (oldExpenseAmountText == null || oldExpenseAmountText.trim().isEmpty()
-                                ? "Not provided" : oldExpenseAmountText));
-                System.out.println("Category     : [" + updateCategory + "]");
-                System.out.println("Description  : [" + updateDescription + "]");
-                System.out.println("New Amount   : " + updateAmount);
-                System.out.println("========================================");
++ "5. If the user says 'particular X', treat X as a possible category.\n"
 
-                boolean updated = transactionTool.updateExpense(
-                        userId, updateExpenseId, updateCategory,
-                        updateDescription, updateAmount);
++ "6. Do not use INCOME as category.\n"
 
-                if (updated) {
-                    if (oldExpenseAmountText != null && !oldExpenseAmountText.trim().isEmpty()) {
-                        return "✅ Expense " + updateExpenseId + " (" + updateCategory
-                                + ") updated from ₹"
-                                + format(Double.parseDouble(oldExpenseAmountText))
-                                + " to ₹" + format(updateAmount) + ".";
-                    }
-                    return "✅ Expense " + updateExpenseId
-                            + " updated successfully to ₹" + format(updateAmount) + ".";
-                } else {
-                    return "❌ Expense " + updateExpenseId
-                            + " was not found or could not be updated.";
-                }
++ "7. Return only CATEGORY|AMOUNT|DESCRIPTION.\n\n"
 
-            // DELETE EXPENSE
++ "Examples:\n"
 
-            // ====================================================
++ "add income 10000 salary -> Salary|10000|Salary income\n"
 
-            case "DELETE_TRANSACTION":
++ "add salary income 25000 -> Salary|25000|Salary income\n"
 
-                int expenseId =
++ "I received 15000 from salary -> Salary|15000|Salary income\n"
 
-                        extractTransactionId(
++ "add income 20000 and particular Salary -> Salary|20000|Salary income\n"
 
-                                question
++ "add 50000 business income -> Business|50000|Business income\n"
 
-                        );
++ "received 12000 from company -> Other|12000|company income\n\n"
 
++ "User message:\n"
 
++ question;
 
+String response =
 
+callOllama(prompt);
 
+response =
 
+response
 
+.trim()
 
+.trim();
 
-                if (expenseId <= 0) {
+String[] lines =
 
-                    return
+response.split("\\r?\\n");
 
-                            "Please provide a valid expense ID.";
+String dataLine = null;
 
-                }
+for (String line : lines) {
 
+line = line.trim();
 
+if (line.contains("|") &&
 
+line.split("\\|").length >= 3) {
 
+dataLine = line;
 
+break;
 
+}
 
+}
 
+if (dataLine == null) {
 
-                System.out.println(
+throw new Exception(
 
-                        "========================================"
+"Could not extract income details from AI response: "
 
-                );
++ response
 
-                System.out.println(
+);
 
-                        "AI DELETE EXPENSE"
+}
 
-                );
+String[] parts =
 
-                System.out.println(
+dataLine.split("\\|", 3);
 
-                        "User ID    : "
+if (parts.length != 3) {
 
-                                + userId
+throw new Exception(
 
-                );
+"Invalid income format from AI: "
 
-                System.out.println(
++ response
 
-                        "Expense ID : "
+);
 
-                                + expenseId
+}
 
-                );
+String category =
 
-                System.out.println(
+parts[0].trim();
 
-                        "========================================"
+String amountText =
 
-                );
+parts[1]
 
+.trim()
 
+.replaceAll(
 
+"[^0-9.]",
 
+""
 
+);
 
+String description =
 
+parts[2].trim();
 
+// --------------------------------------------------------
 
-                // ------------------------------------------------
+// PREVENT INVALID CATEGORY
 
-                // DELETE
+// --------------------------------------------------------
 
-                // ------------------------------------------------
+if (category.equalsIgnoreCase("income") ||
 
-                boolean deleted =
+category.equalsIgnoreCase("earn") ||
 
-                        transactionTool
+category.equalsIgnoreCase("earned") ||
 
-                                .deleteExpense(
+category.equalsIgnoreCase("received") ||
 
-                                        userId,
+category.equalsIgnoreCase("receive") ||
 
-                                        expenseId
+category.equalsIgnoreCase("add")) {
 
-                                );
+category = "Other";
 
+}
 
+if (category.isEmpty()) {
 
+category = "Other";
 
+}
 
+if (description.isEmpty()) {
 
+description =
 
+category + " income";
 
+}
 
-                if (deleted) {
+if (amountText.isEmpty()) {
 
-                    return
+throw new Exception(
 
-                            "✅ Expense "
+"Could not find income amount."
 
-                                    + expenseId
+);
 
-                                    + " deleted successfully.";
+}
 
-                } else {
+double amount;
 
-                    return
+try {
 
-                            "❌ Expense "
+amount =
 
-                                    + expenseId
+Double.parseDouble(
 
-                                    + " was not found or could not be deleted.";
+amountText
 
-                }
+);
 
+} catch (NumberFormatException e) {
 
+throw new Exception(
 
+"Invalid income amount: "
 
++ amountText
 
+);
 
+}
 
+return new String[]{
 
+category,
 
-            // ====================================================
+String.valueOf(amount),
 
-            // DEFAULT
+description
 
-            // ====================================================
+};
 
-            default:
+}
 
-                financialData =
+// ============================================================
 
-                        "No financial database tool was required.";
+// EXTRACT UPDATE INCOME DETAILS
 
-                break;
+// ============================================================
 
-        }
+private String[] extractUpdateIncomeDetails(
 
+String question)
 
+throws Exception {
 
+/*
 
+* Return:
 
+*
 
+* [0] INCOME_ID
 
+* [1] OLD_AMOUNT
 
+* [2] CATEGORY
 
-        // ========================================================
+* [3] NEW_AMOUNT
 
-        // STEP 3 - GENERATE FINAL AI RESPONSE
+* [4] DESCRIPTION
 
-        // ========================================================
+*
 
-        return generateFinalAnswer(
+* Examples:
 
-                question,
+*
 
-                financialData
+* update income 5 amount to 15000
 
-        );
+* -> 5|| |15000|
 
-    }
+*
 
+* update income 12000 instead of 10000
 
+* -> |||12000|
 
+*
 
+* change income from 10000 to 12000
 
+* -> |||12000|
 
+*/
 
+String normalizedQuestion =
 
+question
 
-    // ============================================================
+.trim()
 
-    // INTENT DETECTION
+.replaceAll(
 
-    // ============================================================
+"\\s+",
 
-    private String detectIntent(
+" "
 
-            String question)
+);
 
-            throws Exception {
+String incomeId = "";
 
-        String lower =
+String oldAmount = "";
 
-                question
+String category = "";
 
-                        .toLowerCase()
+String newAmount = "";
 
-                        .trim();
+String description = "";
 
+// --------------------------------------------------------
 
+// 1. EXPLICIT INCOME ID
 
+// --------------------------------------------------------
 
+java.util.regex.Matcher idMatcher =
 
+java.util.regex.Pattern
 
+.compile(
 
+"(?i)\\bincome\\s+(?:id\\s*)?#?(\\d+)\\s+(?=amount|category|to|as)"
 
+)
 
-        // ========================================================
+.matcher(
 
-        // DIRECT ADD INCOME DETECTION
+normalizedQuestion
 
-        // ========================================================
+);
 
-        if (looksLikeAddIncome(lower)) {
+if (idMatcher.find()) {
 
-            return "ADD_INCOME";
+incomeId =
 
-        }
+idMatcher.group(1);
 
+} else {
 
+java.util.regex.Matcher idMatcher2 =
 
+java.util.regex.Pattern
 
+.compile(
 
+"(?i)\\bincome\\s+id\\s*#?(\\d+)\\b"
 
+)
 
+.matcher(
 
+normalizedQuestion
 
-        // ========================================================
+);
 
-        // DIRECT UPDATE INCOME DETECTION
+if (idMatcher2.find()) {
 
-        // ========================================================
+incomeId =
 
-        if (looksLikeUpdateIncome(lower)) {
+idMatcher2.group(1);
 
-            return "UPDATE_INCOME";
+} else {
 
-        }
+java.util.regex.Matcher idMatcher3 =
 
+java.util.regex.Pattern
 
+.compile(
 
+"(?i)\\bid\\s*#?(\\d+)\\b"
 
+)
 
+.matcher(
 
+normalizedQuestion
 
+);
 
+if (idMatcher3.find()) {
 
-        // ========================================================
+incomeId =
 
-        // DIRECT ADD EXPENSE DETECTION
+idMatcher3.group(1);
 
-        // ========================================================
+}
 
-        if (looksLikeAddExpense(lower)) {
+}
 
-            return "ADD_EXPENSE";
+}
 
-        }
+// --------------------------------------------------------
 
+// 2. "NEW INSTEAD OF OLD"
 
+// --------------------------------------------------------
 
+java.util.regex.Matcher insteadMatcher =
 
+java.util.regex.Pattern
 
+.compile(
 
+"(?i)\\b(\\d+(?:\\.\\d+)?)\\s+(?:instead|insted)\\s+of\\s+(\\d+(?:\\.\\d+)?)\\b"
 
+)
 
+.matcher(
 
-        // ========================================================
+normalizedQuestion
 
-        // DIRECT UPDATE EXPENSE DETECTION
+);
 
-        // ========================================================
+if (insteadMatcher.find()) {
 
-        if (looksLikeUpdateExpense(lower)) {
+newAmount =
 
-            return "UPDATE_EXPENSE";
+insteadMatcher.group(1);
 
-        }
+oldAmount =
 
+insteadMatcher.group(2);
 
+}
 
+// --------------------------------------------------------
 
+// 3. "FROM OLD TO NEW"
 
+// --------------------------------------------------------
 
+if (newAmount.isEmpty()) {
 
+java.util.regex.Matcher fromToMatcher =
 
+java.util.regex.Pattern
 
-        // ========================================================
+.compile(
 
-        // DIRECT DELETE DETECTION
+"(?i)\\bfrom\\s+(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b"
 
-        // ========================================================
+)
 
-        if (looksLikeDeleteTransaction(lower)) {
+.matcher(
 
-            return "DELETE_TRANSACTION";
+normalizedQuestion
 
-        }
+);
 
+if (fromToMatcher.find()) {
 
+oldAmount =
 
+fromToMatcher.group(1);
 
+newAmount =
 
+fromToMatcher.group(2);
 
+}
 
+}
 
+// --------------------------------------------------------
 
-        // ========================================================
+// 4. "OLD TO NEW" WHEN THERE IS NO EXPLICIT ID
 
-        // ASK QWEN
+// --------------------------------------------------------
 
-        // ========================================================
+if (incomeId.isEmpty() &&
 
-        String systemPrompt =
+newAmount.isEmpty()) {
 
-                "You are the tool-selection AI for a financial assistant.\n"
+java.util.regex.Matcher toMatcher =
 
-                + "Choose exactly ONE intent.\n\n"
+java.util.regex.Pattern
 
-                + "Available intents:\n"
+.compile(
 
-                + "TOTAL_INCOME\n"
+"(?i)\\b(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b"
 
-                + "TOTAL_EXPENSE\n"
+)
 
-                + "TRANSACTION_COUNT\n"
+.matcher(
 
-                + "CATEGORY_SPENDING\n"
+normalizedQuestion
 
-                + "HIGHEST_EXPENSES\n"
+);
 
-                + "RECENT_TRANSACTIONS\n"
+if (toMatcher.find()) {
 
-                + "FINANCIAL_SUMMARY\n"
+oldAmount =
 
-                + "ADD_INCOME\n"
+toMatcher.group(1);
 
-                + "UPDATE_INCOME\n"
+newAmount =
 
-                + "ADD_EXPENSE\n"
+toMatcher.group(2);
 
-                + "UPDATE_EXPENSE\n"
+}
 
-                + "DELETE_TRANSACTION\n"
+}
 
-                + "NONE\n\n"
+// --------------------------------------------------------
 
+// 5. ASK OLLAMA FOR CATEGORY / DESCRIPTION / FALLBACK
 
+// --------------------------------------------------------
 
+String prompt =
 
+"Extract income update information from the user's message.\n\n"
 
++ "Return ONLY this exact format:\n"
 
++ "INCOME_ID|OLD_AMOUNT|CATEGORY|NEW_AMOUNT|DESCRIPTION\n\n"
 
++ "Rules:\n"
 
++ "1. Income ID is optional. Leave blank if no ID is given.\n"
 
-                + "Examples:\n"
++ "2. OLD_AMOUNT is the amount being replaced.\n"
 
-                + "How much did I earn -> TOTAL_INCOME\n"
++ "3. NEW_AMOUNT is the new amount.\n"
 
-                + "How much did I spend -> TOTAL_EXPENSE\n"
++ "4. For '12000 instead of 10000', NEW_AMOUNT=12000 and OLD_AMOUNT=10000.\n"
 
-                + "Where do I spend most -> CATEGORY_SPENDING\n"
++ "5. For 'from 10000 to 12000', OLD_AMOUNT=10000 and NEW_AMOUNT=12000.\n"
 
-                + "What are my biggest expenses -> HIGHEST_EXPENSES\n"
++ "6. Do not treat a new amount as an income ID.\n"
 
-                + "Show recent transactions -> RECENT_TRANSACTIONS\n"
++ "7. Category is blank when no category change is requested.\n"
 
-                + "How many transactions -> TRANSACTION_COUNT\n"
++ "8. Description is blank when no description change is requested.\n"
 
-                + "Give me my financial summary -> FINANCIAL_SUMMARY\n"
++ "9. Return only five pipe-separated values.\n\n"
 
++ "Examples:\n"
 
++ "update income 5 amount to 15000 -> 5|||15000|\n"
 
++ "update income 5 to salary 20000 -> 5||Salary|20000|\n"
 
++ "edit income 7 amount 25000 category salary -> 7||Salary|25000|\n"
 
++ "change income 10 to Business 50000 -> 10||Business|50000|\n"
 
++ "update income 12000 instead of 10000 -> |||12000|\n"
 
++ "change income from 10000 to 12000 -> |||12000|\n\n"
 
++ "User message:\n"
 
-                // INCOME
++ question;
 
-                + "Add income 10000 salary -> ADD_INCOME\n"
+String response =
 
-                + "Add salary income 25000 -> ADD_INCOME\n"
+callOllama(prompt);
 
-                + "I received 12000 salary -> ADD_INCOME\n"
+response =
 
-                + "I earned 15000 from salary -> ADD_INCOME\n"
+response
 
-                + "Add 20000 income and particular Salary -> ADD_INCOME\n"
+.trim()
 
-                + "Update income 5 amount to 15000 -> UPDATE_INCOME\n"
+.replace(
 
-                + "Edit income 5 amount to 20000 -> UPDATE_INCOME\n"
+"```",
 
-                + "Change income 7 to salary 25000 -> UPDATE_INCOME\n"
+""
 
+)
 
+.trim();
 
+String[] lines =
 
+response.split(
 
+"\\r?\\n"
 
+);
 
+String dataLine = null;
 
+for (String line : lines) {
 
-                // EXPENSE
+line = line.trim();
 
-                + "Add food expense 500 -> ADD_EXPENSE\n"
+if (line.contains("|") &&
 
-                + "Add food exp 500 -> ADD_EXPENSE\n"
+line.split(
 
-                + "I spent 500 on food -> ADD_EXPENSE\n"
+"\\|",
 
-                + "Add 300 travel expense -> ADD_EXPENSE\n"
+-1
 
-                + "Add 500 exp and particular is Sarthak -> ADD_EXPENSE\n"
+).length >= 5) {
 
-                + "Update expense 5 amount to 700 -> UPDATE_EXPENSE\n"
+dataLine = line;
 
-                + "Edit expense 10 amount to 500 -> UPDATE_EXPENSE\n"
+break;
 
-                + "Change expense 7 to 1000 -> UPDATE_EXPENSE\n"
+}
 
+}
 
+if (dataLine != null) {
 
+String[] parts =
 
+dataLine.split(
 
+"\\|",
 
+5
 
+);
 
+if (parts.length == 5) {
 
-                // DELETE
+if (incomeId.isEmpty()) {
 
-                + "Delete transaction 25 -> DELETE_TRANSACTION\n"
+incomeId =
 
-                + "Delete expense 25 -> DELETE_TRANSACTION\n"
+parts[0].trim();
 
-                + "Remove transaction 25 -> DELETE_TRANSACTION\n\n"
+}
 
+if (oldAmount.isEmpty()) {
 
+oldAmount =
 
+parts[1]
 
+.trim()
 
+.replaceAll(
 
+"[^0-9.]",
 
+""
 
+);
 
-                + "Return ONLY the intent name.\n"
+}
 
-                + "Do not explain anything.";
+category =
 
+parts[2].trim();
 
+if (newAmount.isEmpty()) {
 
+newAmount =
 
+parts[3]
 
+.trim()
 
+.replaceAll(
 
+"[^0-9.]",
 
+""
 
-        String prompt =
+);
 
-                systemPrompt
+}
 
-                        + "\n\nUser question:\n"
+description =
 
-                        + question;
+parts[4].trim();
 
+}
 
+}
 
+// --------------------------------------------------------
 
+// 6. DETERMINISTIC OVERRIDE FOR "INSTEAD OF"
 
+// --------------------------------------------------------
 
+insteadMatcher =
 
+java.util.regex.Pattern
 
+.compile(
 
-        String response =
+"(?i)\\b(\\d+(?:\\.\\d+)?)\\s+(?:instead|insted)\\s+of\\s+(\\d+(?:\\.\\d+)?)\\b"
 
-                callOllama(prompt);
+)
 
+.matcher(
 
+normalizedQuestion
 
+);
 
+if (insteadMatcher.find()) {
 
+newAmount =
 
+insteadMatcher.group(1);
 
+oldAmount =
 
+insteadMatcher.group(2);
 
-        response =
+}
 
-                response
+// --------------------------------------------------------
 
-                        .trim()
+// 7. DETERMINISTIC OVERRIDE FOR "FROM OLD TO NEW"
 
-                        .toUpperCase();
+// --------------------------------------------------------
 
+java.util.regex.Matcher fromToMatcher =
 
+java.util.regex.Pattern
 
+.compile(
 
+"(?i)\\bfrom\\s+(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b"
 
+)
 
+.matcher(
 
+normalizedQuestion
 
+);
 
-        // ========================================================
+if (fromToMatcher.find()) {
 
-        // VALIDATE AI RESPONSE
+oldAmount =
 
-        // ========================================================
+fromToMatcher.group(1);
 
-        if (response.contains("ADD_INCOME")) {
+newAmount =
 
-            return "ADD_INCOME";
+fromToMatcher.group(2);
 
-        }
+}
 
+// --------------------------------------------------------
 
+// 8. EXPLICIT ID + "AMOUNT TO NEW_AMOUNT"
 
+// --------------------------------------------------------
 
+if (!incomeId.isEmpty()) {
 
+java.util.regex.Matcher amountMatcher =
 
+java.util.regex.Pattern
 
+.compile(
 
+"(?i)\\bamount\\s*(?:to|=)\\s*(\\d+(?:\\.\\d+)?)\\b"
 
-        if (response.contains("UPDATE_INCOME")) {
+)
 
-            return "UPDATE_INCOME";
+.matcher(
 
-        }
+normalizedQuestion
 
+);
 
+if (amountMatcher.find()) {
 
+newAmount =
 
+amountMatcher.group(1);
 
+}
 
+}
 
+// --------------------------------------------------------
 
+// 9. VALIDATE NEW AMOUNT
 
-        if (response.contains("ADD_EXPENSE")) {
+// --------------------------------------------------------
 
-            return "ADD_EXPENSE";
+if (newAmount.isEmpty()) {
 
-        }
+throw new Exception(
 
+"Could not find the new income amount."
 
+);
 
+}
 
+try {
 
+Double.parseDouble(
 
+newAmount
 
+);
 
+if (!oldAmount.isEmpty()) {
 
-        if (response.contains("UPDATE_EXPENSE")) {
+Double.parseDouble(
 
-            return "UPDATE_EXPENSE";
+oldAmount
 
-        }
+);
 
+}
 
+} catch (NumberFormatException e) {
 
+throw new Exception(
 
+"Invalid update income amount."
 
+);
 
+}
 
+return new String[]{
 
+incomeId,
 
-        if (response.contains("DELETE_TRANSACTION")) {
+oldAmount,
 
-            return "DELETE_TRANSACTION";
+category,
 
-        }
+newAmount,
 
+description
 
+};
 
+}
 
+// ============================================================
 
+// EXTRACT EXPENSE DETAILS
 
+// ============================================================
 
+private String[] extractExpenseDetails(
 
+String question)
 
-        if (response.contains("TOTAL_INCOME")) {
+throws Exception {
 
-            return "TOTAL_INCOME";
+String prompt =
 
-        }
+"Extract expense information from the user's message.\n\n"
 
++ "Return ONLY this exact format:\n"
 
++ "CATEGORY|AMOUNT|DESCRIPTION\n\n"
 
++ "IMPORTANT RULES:\n"
 
++ "1. Extract the numeric amount.\n"
 
++ "2. Extract the real expense category if the user gives one.\n"
 
++ "3. Words such as 'expense', 'exp', 'spent', 'add' are NOT categories.\n"
 
++ "4. If the user only says expense without a real category, use Other as CATEGORY.\n"
 
++ "5. If the user explicitly gives a category, use that category.\n"
 
-        if (response.contains("TOTAL_EXPENSE")) {
++ "6. If the user says 'particular X', first treat X as a possible category.\n"
 
-            return "TOTAL_EXPENSE";
++ "7. If 'particular X' matches a real category, use X as CATEGORY.\n"
 
-        }
++ "8. If 'particular X' does not look like a category, X may be DESCRIPTION.\n"
 
++ "9. Do not use EXPENSE as the category.\n"
 
++ "10. Return only CATEGORY|AMOUNT|DESCRIPTION.\n\n"
 
++ "Examples:\n"
 
++ "add food expense 500 -> Food|500|Food expense\n"
 
++ "add food exp 500 -> Food|500|Food expense\n"
 
++ "add 500 food -> Food|500|Food expense\n"
 
++ "add 500 food and particular is Sarthak -> Food|500|Sarthak\n"
 
++ "add 500 petrol description Bike fuel -> Petrol|500|Bike fuel\n"
 
-        if (response.contains("TRANSACTION_COUNT")) {
++ "add 200 and particular Rent -> Rent|200|Rent expense\n"
 
-            return "TRANSACTION_COUNT";
++ "add expense 200 particular Rent -> Rent|200|Rent expense\n"
 
-        }
++ "add 500 exp and particular Sarthak -> Other|500|Sarthak\n"
 
++ "I spent 250 on shopping -> Shopping|250|Shopping expense\n"
 
++ "spent 700 on travel -> Travel|700|Travel expense\n\n"
 
++ "User message:\n"
 
++ question;
 
+String response =
 
+callOllama(prompt);
 
+response =
 
+response
 
-        if (response.contains("CATEGORY_SPENDING")) {
+.trim()
 
-            return "CATEGORY_SPENDING";
+.trim();
 
-        }
+String[] lines =
 
+response.split("\\r?\\n");
 
+String dataLine = null;
 
+for (String line : lines) {
 
+line = line.trim();
 
+if (line.contains("|") &&
 
+line.split("\\|").length >= 3) {
 
+dataLine = line;
 
+break;
 
-        if (response.contains("HIGHEST_EXPENSES")) {
+}
 
-            return "HIGHEST_EXPENSES";
+}
 
-        }
+if (dataLine == null) {
 
+throw new Exception(
 
+"Could not extract expense details from AI response: "
 
++ response
 
+);
 
+}
 
+String[] parts =
 
+dataLine.split("\\|", 3);
 
+if (parts.length != 3) {
 
-        if (response.contains("RECENT_TRANSACTIONS")) {
+throw new Exception(
 
-            return "RECENT_TRANSACTIONS";
+"Invalid expense format from AI: "
 
-        }
++ response
 
+);
 
+}
 
+String category =
 
+parts[0].trim();
 
+String amountText =
 
+parts[1]
 
+.trim()
 
+.replaceAll(
 
-        if (response.contains("FINANCIAL_SUMMARY")) {
+"[^0-9.]",
 
-            return "FINANCIAL_SUMMARY";
+""
 
-        }
+);
 
+String description =
 
+parts[2].trim();
 
+// --------------------------------------------------------
 
+// PREVENT INVALID CATEGORY
 
+// --------------------------------------------------------
 
+if (category.equalsIgnoreCase("expense") ||
 
+category.equalsIgnoreCase("exp") ||
 
+category.equalsIgnoreCase("spent") ||
 
-        return "NONE";
+category.equalsIgnoreCase("add")) {
 
-    }
+category =
 
+"Other";
 
+}
 
+if (category.isEmpty()) {
 
+category =
 
+"Other";
 
+}
 
+if (description.isEmpty()) {
 
+description =
 
-    // ============================================================
+category + " expense";
 
-    // CHECK ADD INCOME COMMAND
+}
 
-    // ============================================================
+if (amountText.isEmpty()) {
 
-    private boolean looksLikeAddIncome(
+throw new Exception(
 
-            String question) {
+"Could not find expense amount."
 
-        boolean hasAddOrReceive =
+);
 
-                question.contains("add")
+}
 
-                        || question.contains("received")
+double amount;
 
-                        || question.contains("receive")
+try {
 
-                        || question.contains("earned")
+amount =
 
-                        || question.contains("earn")
+Double.parseDouble(
 
-                        || question.contains("got");
+amountText
 
+);
 
+} catch (NumberFormatException e) {
 
+throw new Exception(
 
+"Invalid expense amount: "
 
++ amountText
 
+);
 
+}
 
+return new String[]{
 
-        boolean hasIncome =
+category,
 
-                question.contains("income")
+String.valueOf(amount),
 
-                        || question.contains("salary")
+description
 
-                        || question.contains("earning")
+};
 
-                        || question.contains("payment");
+}
 
+// ============================================================
 
+// EXTRACT UPDATE EXPENSE DETAILS
 
+// ============================================================
 
+private String[] extractUpdateExpenseDetails(String question) throws Exception {
 
+String q = question == null ? "" : question.trim().replaceAll("\\s+", " ");
 
+String expenseId = "";
 
+String category = "";
 
+String oldAmount = "";
 
-        boolean hasMoney =
+String newAmount = "";
 
-                question.matches(
+String description = "";
 
-                        ".*\\d+(\\.\\d+)?.*"
+// Explicit ID only. This prevents 500 from becoming the ID in
 
-                );
+// commands such as: update bike expense 500 to 200
 
+java.util.regex.Matcher m = java.util.regex.Pattern.compile(
 
+"(?i)\\b(?:expense|transaction)\\s+id\\s*#?(\\d+)\\b")
 
+.matcher(q);
 
+if (m.find()) {
 
+expenseId = m.group(1);
 
+} else {
 
+m = java.util.regex.Pattern.compile("(?i)\\bid\\s*#?(\\d+)\\b").matcher(q);
 
+if (m.find()) {
 
-        return hasAddOrReceive
+expenseId = m.group(1);
 
-                && hasIncome
+} else {
 
-                && hasMoney;
+m = java.util.regex.Pattern.compile(
 
-    }
+"(?i)\\bexpense\\s+#?(\\d+)\\s+(?=(?:amount|category|description|to|as)\\b)")
 
+.matcher(q);
 
+if (m.find()) {
 
+expenseId = m.group(1);
 
+}
 
+}
 
+}
 
+// from OLD to NEW
 
+m = java.util.regex.Pattern.compile(
 
-    // ============================================================
+"(?i)\\bfrom\\s+(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b")
 
-    // CHECK UPDATE INCOME COMMAND
+.matcher(q);
 
-    // ============================================================
+if (m.find()) {
 
-    private boolean looksLikeUpdateIncome(
+oldAmount = m.group(1);
 
-            String question) {
+newAmount = m.group(2);
 
-        boolean hasUpdate =
+}
 
-                question.contains("update")
+// OLD to NEW when there is no explicit ID.
 
-                        || question.contains("edit")
+if (newAmount.isEmpty() && expenseId.isEmpty()) {
 
-                        || question.contains("change")
+m = java.util.regex.Pattern.compile(
 
-                        || question.contains("modify");
+"(?i)\\b(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b")
 
+.matcher(q);
 
+if (m.find()) {
 
+oldAmount = m.group(1);
 
+newAmount = m.group(2);
 
+}
 
+}
 
+// Explicit ID + new amount.
 
+if (newAmount.isEmpty() && !expenseId.isEmpty()) {
 
-        boolean hasIncome =
+m = java.util.regex.Pattern.compile(
 
-                question.contains("income")
+"(?i)\\b(?:amount\\s*)?(?:to|=)\\s*(\\d+(?:\\.\\d+)?)\\b")
 
-                        || question.contains("salary")
+.matcher(q);
 
-                        || question.contains("earning");
+if (m.find()) {
 
+newAmount = m.group(1);
 
+}
 
+}
 
+if (!expenseId.isEmpty() && newAmount.isEmpty()) {
 
+m = java.util.regex.Pattern.compile(
 
+"(?i)\\bamount\\s*(?:to|=)?\\s*(\\d+(?:\\.\\d+)?)\\b")
 
+.matcher(q);
 
+if (m.find()) {
 
-        boolean hasNumber =
+newAmount = m.group(1);
 
-                question.matches(
+}
 
-                        ".*\\d+.*"
+}
 
-                );
+// Ask Ollama only for category/description. Amounts are parsed
 
+// deterministically so the model cannot confuse ID and amount.
 
+String prompt =
 
+"Extract expense update information from the user's message.\\n\\n"
 
++ "Return ONLY: CATEGORY|NEW_AMOUNT|DESCRIPTION\\n"
 
++ "Use the real category. Do not treat numbers as categories.\\n"
 
++ "Examples:\n"
 
++ "update bike expense 500 to 200 -> Bike|200|\\n"
 
++ "update food expense 500 to 700 -> Food|700|\\n"
 
-        return hasUpdate
++ "update expense 18 to travel 900 -> Travel|900|\\n\\n"
 
-                && hasIncome
++ "User message:\n" + q;
 
-                && hasNumber;
+try {
 
-    }
+String response = callOllama(prompt).trim().replace("```", "");
 
+for (String line : response.split("\\r?\\n")) {
 
+line = line.trim();
 
+if (!line.contains("|")) continue;
 
+String[] parts = line.split("\\|", 3);
 
+if (parts.length == 3) {
 
+if (category.isEmpty()) category = parts[0].trim();
 
+if (newAmount.isEmpty()) {
 
+newAmount = parts[1].trim().replaceAll("[^0-9.]", "");
 
-    // ============================================================
+}
 
-    // CHECK ADD EXPENSE COMMAND
+description = parts[2].trim();
 
-    // ============================================================
+break;
 
-    private boolean looksLikeAddExpense(
+}
 
-            String question) {
+}
 
-        boolean hasAddOrSpend =
+} catch (Exception e) {
 
-                question.contains("add")
+System.out.println("Update expense AI extraction skipped: " + e.getMessage());
 
-                        || question.contains("spent")
+}
 
-                        || question.contains("spend");
+if (category.equalsIgnoreCase("expense") ||
 
+category.equalsIgnoreCase("exp") ||
 
+category.equalsIgnoreCase("update") ||
 
+category.equalsIgnoreCase("change") ||
 
+category.equalsIgnoreCase("amount") ||
 
+category.equalsIgnoreCase("to") ||
 
+category.equalsIgnoreCase("from") ||
 
+category.matches("\\d+(?:\\.\\d+)?")) {
 
+category = "";
 
-        boolean hasExpenseWord =
+}
 
-                question.contains("expense")
+if (newAmount.isEmpty()) {
 
-                        || question.contains("exp");
+throw new Exception("Could not find the new expense amount.");
 
+}
 
+try {
 
+Double.parseDouble(newAmount);
 
+if (!oldAmount.isEmpty()) Double.parseDouble(oldAmount);
 
+} catch (NumberFormatException e) {
 
+throw new Exception("Invalid expense amount in update command.");
 
+}
 
+if (category.isEmpty()) category = "Other";
 
-        boolean hasMoney =
+if (description.isEmpty()) description = category + " expense";
 
-                question.matches(
+return new String[]{expenseId, category, oldAmount, newAmount, description};
 
-                        ".*\\d+(\\.\\d+)?.*"
+}
 
-                );
+// ============================================================
 
+// FIND EXISTING EXPENSE CATEGORY BY ID
 
+// ============================================================
 
+private String findExpenseCategoryById(int userId, int expenseId) {
 
+try {
 
+List<Map<String, Object>> transactions =
 
+transactionTool.getRecentTransactions(userId, 10000);
 
+if (transactions == null) return null;
 
+for (Map<String, Object> row : transactions) {
 
-        return hasAddOrSpend
+if (row == null) continue;
 
-                && hasExpenseWord
+Object idObj = getMapValue(
 
-                && hasMoney;
+row,
 
-    }
+"id",
 
+"expense_id",
 
+"expenseId",
 
+"transaction_id",
 
+"transactionId"
 
+);
 
+if (idObj == null) continue;
 
+int id;
 
+try {
 
-    // ============================================================
+id = Integer.parseInt(String.valueOf(idObj));
 
-    // CHECK UPDATE EXPENSE COMMAND
+} catch (NumberFormatException e) {
 
-    // ============================================================
+continue;
 
-    private boolean looksLikeUpdateExpense(
+}
 
-            String question) {
+if (id != expenseId) continue;
 
-        boolean hasUpdate =
+Object typeObj = getMapValue(
 
-                question.contains("update")
+row,
 
-                        || question.contains("edit")
+"type",
 
-                        || question.contains("change")
+"transaction_type",
 
-                        || question.contains("modify");
+"transactionType"
 
+);
 
+if (typeObj != null &&
 
+String.valueOf(typeObj).toLowerCase().contains("income")) {
 
+return null;
 
+}
 
+Object categoryObj = getMapValue(
 
+row,
 
+"category",
 
-        boolean hasExpense =
+"category_name",
 
-                question.contains("expense")
+"categoryName"
 
-                        || question.contains("transaction");
+);
 
+return categoryObj == null ? null : String.valueOf(categoryObj);
 
+}
 
+} catch (Exception e) {
 
+System.out.println(
 
+"Could not find expense category by ID: " + e.getMessage()
 
+);
 
+}
 
+return null;
 
-        boolean hasNumber =
+}
 
-                question.matches(
+// ============================================================
 
-                        ".*\\d+.*"
+// FIND EXPENSE ID USING CATEGORY + OLD AMOUNT
 
-                );
+// ============================================================
 
+private int findExpenseIdByCategoryAndAmount(int userId, String category, double oldAmount) {
 
+try {
 
+List<Map<String, Object>> transactions =
 
+transactionTool.getRecentTransactions(userId, 10000);
 
+if (transactions == null) return -1;
 
+for (Map<String, Object> row : transactions) {
 
+if (row == null) continue;
 
+Object typeObj = getMapValue(row, "type", "transaction_type", "transactionType");
 
-        return hasUpdate
+if (typeObj != null && String.valueOf(typeObj).toLowerCase().contains("income")) {
 
-                && hasExpense
+continue;
 
-                && hasNumber;
+}
 
-    }
+Object categoryObj = getMapValue(row, "category", "category_name", "categoryName");
 
+Object amountObj = getMapValue(row, "amount", "expense_amount", "expenseAmount");
 
+Object idObj = getMapValue(row, "id", "expense_id", "expenseId", "transaction_id", "transactionId");
 
+if (categoryObj == null || amountObj == null || idObj == null) continue;
 
+if (!String.valueOf(categoryObj).trim().equalsIgnoreCase(category == null ? "" : category.trim())) continue;
 
+double dbAmount;
 
+try { dbAmount = Double.parseDouble(String.valueOf(amountObj)); }
 
+catch (NumberFormatException e) { continue; }
 
+if (Math.abs(dbAmount - oldAmount) > 0.0001) continue;
 
-    // ============================================================
+try { return Integer.parseInt(String.valueOf(idObj)); }
 
-    // CHECK DELETE COMMAND
+catch (NumberFormatException ignored) { }
 
-    // ============================================================
+}
 
-    private boolean looksLikeDeleteTransaction(
+} catch (Exception e) {
 
-            String question) {
+System.out.println("Could not find expense by category + amount: " + e.getMessage());
 
-        boolean hasDelete =
+}
 
-                question.contains("delete")
+return -1;
 
-                        || question.contains("remove");
+}
 
+private Object getMapValue(Map<String, Object> row, String... keys) {
 
+for (String key : keys) {
 
+if (row.containsKey(key)) return row.get(key);
 
+}
 
+for (Map.Entry<String, Object> entry : row.entrySet()) {
 
+if (entry.getKey() == null) continue;
 
+for (String key : keys) {
 
+if (entry.getKey().equalsIgnoreCase(key)) return entry.getValue();
 
-        boolean hasTransaction =
+}
 
-                question.contains("transaction")
+}
 
-                        || question.contains("expense");
+return null;
 
+}
 
-
-
-
-
-
-
-
-        boolean hasNumber =
-
-                question.matches(
-
-                        ".*\\d+.*"
-
-                );
-
-
-
-
-
-
-
-
-
-        return hasDelete
-
-                && hasTransaction
-
-                && hasNumber;
-
-    }
-
-
-
-
-
-
-
-
-
-    // ============================================================
-
-    // EXTRACT INCOME DETAILS
-
-    // ============================================================
-
-    private String[] extractIncomeDetails(
-
-            String question)
-
-            throws Exception {
-
-        String prompt =
-
-                "Extract income information from the user's message.\n\n"
-
-                + "Return ONLY this exact format:\n"
-
-                + "CATEGORY|AMOUNT|DESCRIPTION\n\n"
-
-                + "IMPORTANT RULES:\n"
-
-                + "1. Extract the numeric income amount.\n"
-
-                + "2. Extract the real income category.\n"
-
-                + "3. Words such as income, earn, received, add are NOT categories.\n"
-
-                + "4. If the user gives a category such as Salary, Business, Freelance, use it.\n"
-
-                + "5. If the user says 'particular X', treat X as a possible category.\n"
-
-                + "6. Do not use INCOME as category.\n"
-
-                + "7. Return only CATEGORY|AMOUNT|DESCRIPTION.\n\n"
-
-
-
-
-
-
-
-
-
-                + "Examples:\n"
-
-                + "add income 10000 salary -> Salary|10000|Salary income\n"
-
-                + "add salary income 25000 -> Salary|25000|Salary income\n"
-
-                + "I received 15000 from salary -> Salary|15000|Salary income\n"
-
-                + "add income 20000 and particular Salary -> Salary|20000|Salary income\n"
-
-                + "add 50000 business income -> Business|50000|Business income\n"
-
-                + "received 12000 from company -> Other|12000|company income\n\n"
-
-
-
-
-
-
-
-
-
-                + "User message:\n"
-
-                + question;
-
-
-
-
-
-
-
-
-
-        String response =
-
-                callOllama(prompt);
-
-
-
-
-
-
-
-
-
-        response =
-
-                response
-
-                        .trim()
-
-                        
-
-                        .trim();
-
-
-
-
-
-
-
-
-
-        String[] lines =
-
-                response.split("\\r?\\n");
-
-
-
-
-
-
-
-
-
-        String dataLine = null;
-
-
-
-
-
-
-
-
-
-        for (String line : lines) {
-
-            line = line.trim();
-
-
-
-
-
-
-
-
-
-            if (line.contains("|") &&
-
-                    line.split("\\|").length >= 3) {
-
-                dataLine = line;
-
-                break;
-
-            }
-
-        }
-
-
-
-
-
-
-
-
-
-        if (dataLine == null) {
-
-            throw new Exception(
-
-                    "Could not extract income details from AI response: "
-
-                            + response
-
-            );
-
-        }
-
-
-
-
-
-
-
-
-
-        String[] parts =
-
-                dataLine.split("\\|", 3);
-
-
-
-
-
-
-
-
-
-        if (parts.length != 3) {
-
-            throw new Exception(
-
-                    "Invalid income format from AI: "
-
-                            + response
-
-            );
-
-        }
-
-
-
-
-
-
-
-
-
-        String category =
-
-                parts[0].trim();
-
-
-
-
-
-
-
-
-
-        String amountText =
-
-                parts[1]
-
-                        .trim()
-
-                        .replaceAll(
-
-                                "[^0-9.]",
-
-                                ""
-
-                        );
-
-
-
-
-
-
-
-
-
-        String description =
-
-                parts[2].trim();
-
-
-
-
-
-
-
-
-
-        // --------------------------------------------------------
-
-        // PREVENT INVALID CATEGORY
-
-        // --------------------------------------------------------
-
-        if (category.equalsIgnoreCase("income") ||
-
-                category.equalsIgnoreCase("earn") ||
-
-                category.equalsIgnoreCase("earned") ||
-
-                category.equalsIgnoreCase("received") ||
-
-                category.equalsIgnoreCase("receive") ||
-
-                category.equalsIgnoreCase("add")) {
-
-            category = "Other";
-
-        }
-
-
-
-
-
-
-
-
-
-        if (category.isEmpty()) {
-
-            category = "Other";
-
-        }
-
-
-
-
-
-
-
-
-
-        if (description.isEmpty()) {
-
-            description =
-
-                    category + " income";
-
-        }
-
-
-
-
-
-
-
-
-
-        if (amountText.isEmpty()) {
-
-            throw new Exception(
-
-                    "Could not find income amount."
-
-            );
-
-        }
-
-
-
-
-
-
-
-
-
-        double amount;
-
-
-
-
-
-
-
-
-
-        try {
-
-            amount =
-
-                    Double.parseDouble(
-
-                            amountText
-
-                    );
-
-        } catch (NumberFormatException e) {
-
-            throw new Exception(
-
-                    "Invalid income amount: "
-
-                            + amountText
-
-            );
-
-        }
-
-
-
-
-
-
-
-
-
-        return new String[]{
-
-                category,
-
-                String.valueOf(amount),
-
-                description
-
-        };
-
-    }
-
-
-
-
-
-
-
-
-
-    // ============================================================
-
-    // EXTRACT UPDATE INCOME DETAILS
-
-    // ============================================================
-
-    private String[] extractUpdateIncomeDetails(
-
-            String question)
-
-            throws Exception {
-
-        /*
-
-         * Return:
-
-         *
-
-         * [0] INCOME_ID
-
-         * [1] OLD_AMOUNT
-
-         * [2] CATEGORY
-
-         * [3] NEW_AMOUNT
-
-         * [4] DESCRIPTION
-
-         *
-
-         * Examples:
-
-         *
-
-         * update income 5 amount to 15000
-
-         * -> 5|| |15000|
-
-         *
-
-         * update income 12000 instead of 10000
-
-         * -> |||12000|
-
-         *
-
-         * change income from 10000 to 12000
-
-         * -> |||12000|
-
-         */
-
-        String normalizedQuestion =
-
-                question
-
-                        .trim()
-
-                        .replaceAll(
-
-                                "\\s+",
-
-                                " "
-
-                        );
-
-        String incomeId = "";
-
-        String oldAmount = "";
-
-        String category = "";
-
-        String newAmount = "";
-
-        String description = "";
-
-        // --------------------------------------------------------
-
-        // 1. EXPLICIT INCOME ID
-
-        // --------------------------------------------------------
-
-        java.util.regex.Matcher idMatcher =
-
-                java.util.regex.Pattern
-
-                        .compile(
-
-                                "(?i)\\bincome\\s+(?:id\\s*)?#?(\\d+)\\s+(?=amount|category|to|as)"
-
-                        )
-
-                        .matcher(
-
-                                normalizedQuestion
-
-                        );
-
-        if (idMatcher.find()) {
-
-            incomeId =
-
-                    idMatcher.group(1);
-
-        } else {
-
-            java.util.regex.Matcher idMatcher2 =
-
-                    java.util.regex.Pattern
-
-                            .compile(
-
-                                    "(?i)\\bincome\\s+id\\s*#?(\\d+)\\b"
-
-                            )
-
-                            .matcher(
-
-                                    normalizedQuestion
-
-                            );
-
-            if (idMatcher2.find()) {
-
-                incomeId =
-
-                        idMatcher2.group(1);
-
-            } else {
-
-                java.util.regex.Matcher idMatcher3 =
-
-                        java.util.regex.Pattern
-
-                                .compile(
-
-                                        "(?i)\\bid\\s*#?(\\d+)\\b"
-
-                                )
-
-                                .matcher(
-
-                                        normalizedQuestion
-
-                                );
-
-                if (idMatcher3.find()) {
-
-                    incomeId =
-
-                            idMatcher3.group(1);
-
-                }
-
-            }
-
-        }
-
-        // --------------------------------------------------------
-
-        // 2. "NEW INSTEAD OF OLD"
-
-        // --------------------------------------------------------
-
-        java.util.regex.Matcher insteadMatcher =
-
-                java.util.regex.Pattern
-
-                        .compile(
-
-                                "(?i)\\b(\\d+(?:\\.\\d+)?)\\s+(?:instead|insted)\\s+of\\s+(\\d+(?:\\.\\d+)?)\\b"
-
-                        )
-
-                        .matcher(
-
-                                normalizedQuestion
-
-                        );
-
-        if (insteadMatcher.find()) {
-
-            newAmount =
-
-                    insteadMatcher.group(1);
-
-            oldAmount =
-
-                    insteadMatcher.group(2);
-
-        }
-
-        // --------------------------------------------------------
-
-        // 3. "FROM OLD TO NEW"
-
-        // --------------------------------------------------------
-
-        if (newAmount.isEmpty()) {
-
-            java.util.regex.Matcher fromToMatcher =
-
-                    java.util.regex.Pattern
-
-                            .compile(
-
-                                    "(?i)\\bfrom\\s+(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b"
-
-                            )
-
-                            .matcher(
-
-                                    normalizedQuestion
-
-                            );
-
-            if (fromToMatcher.find()) {
-
-                oldAmount =
-
-                        fromToMatcher.group(1);
-
-                newAmount =
-
-                        fromToMatcher.group(2);
-
-            }
-
-        }
-
-        // --------------------------------------------------------
-
-        // 4. "OLD TO NEW" WHEN THERE IS NO EXPLICIT ID
-
-        // --------------------------------------------------------
-
-        if (incomeId.isEmpty() &&
-
-                newAmount.isEmpty()) {
-
-            java.util.regex.Matcher toMatcher =
-
-                    java.util.regex.Pattern
-
-                            .compile(
-
-                                    "(?i)\\b(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b"
-
-                            )
-
-                            .matcher(
-
-                                    normalizedQuestion
-
-                            );
-
-            if (toMatcher.find()) {
-
-                oldAmount =
-
-                        toMatcher.group(1);
-
-                newAmount =
-
-                        toMatcher.group(2);
-
-            }
-
-        }
-
-        // --------------------------------------------------------
-
-        // 5. ASK OLLAMA FOR CATEGORY / DESCRIPTION / FALLBACK
-
-        // --------------------------------------------------------
-
-        String prompt =
-
-                "Extract income update information from the user's message.\n\n"
-
-                + "Return ONLY this exact format:\n"
-
-                + "INCOME_ID|OLD_AMOUNT|CATEGORY|NEW_AMOUNT|DESCRIPTION\n\n"
-
-                + "Rules:\n"
-
-                + "1. Income ID is optional. Leave blank if no ID is given.\n"
-
-                + "2. OLD_AMOUNT is the amount being replaced.\n"
-
-                + "3. NEW_AMOUNT is the new amount.\n"
-
-                + "4. For '12000 instead of 10000', NEW_AMOUNT=12000 and OLD_AMOUNT=10000.\n"
-
-                + "5. For 'from 10000 to 12000', OLD_AMOUNT=10000 and NEW_AMOUNT=12000.\n"
-
-                + "6. Do not treat a new amount as an income ID.\n"
-
-                + "7. Category is blank when no category change is requested.\n"
-
-                + "8. Description is blank when no description change is requested.\n"
-
-                + "9. Return only five pipe-separated values.\n\n"
-
-                + "Examples:\n"
-
-                + "update income 5 amount to 15000 -> 5|||15000|\n"
-
-                + "update income 5 to salary 20000 -> 5||Salary|20000|\n"
-
-                + "edit income 7 amount 25000 category salary -> 7||Salary|25000|\n"
-
-                + "change income 10 to Business 50000 -> 10||Business|50000|\n"
-
-                + "update income 12000 instead of 10000 -> |||12000|\n"
-
-                + "change income from 10000 to 12000 -> |||12000|\n\n"
-
-                + "User message:\n"
-
-                + question;
-
-        String response =
-
-                callOllama(prompt);
-
-        response =
-
-                response
-
-                        .trim()
-
-                        .replace(
-
-                                "```",
-
-                                ""
-
-                        )
-
-                        .trim();
-
-        String[] lines =
-
-                response.split(
-
-                        "\\r?\\n"
-
-                );
-
-        String dataLine = null;
-
-        for (String line : lines) {
-
-            line = line.trim();
-
-            if (line.contains("|") &&
-
-                    line.split(
-
-                            "\\\\|",
-
-                            -1
-
-                    ).length >= 5) {
-
-                dataLine = line;
-
-                break;
-
-            }
-
-        }
-
-        if (dataLine != null) {
-
-            String[] parts =
-
-                    dataLine.split(
-
-                            "\\\\|",
-
-                            5
-
-                    );
-
-            if (parts.length == 5) {
-
-                if (incomeId.isEmpty()) {
-
-                    incomeId =
-
-                            parts[0].trim();
-
-                }
-
-                if (oldAmount.isEmpty()) {
-
-                    oldAmount =
-
-                            parts[1]
-
-                                    .trim()
-
-                                    .replaceAll(
-
-                                            "[^0-9.]",
-
-                                            ""
-
-                                    );
-
-                }
-
-                category =
-
-                        parts[2].trim();
-
-                if (newAmount.isEmpty()) {
-
-                    newAmount =
-
-                            parts[3]
-
-                                    .trim()
-
-                                    .replaceAll(
-
-                                            "[^0-9.]",
-
-                                            ""
-
-                                    );
-
-                }
-
-                description =
-
-                        parts[4].trim();
-
-            }
-
-        }
-
-        // --------------------------------------------------------
-
-        // 6. DETERMINISTIC OVERRIDE FOR "INSTEAD OF"
-
-        // --------------------------------------------------------
-
-        insteadMatcher =
-
-                java.util.regex.Pattern
-
-                        .compile(
-
-                                "(?i)\\b(\\d+(?:\\.\\d+)?)\\s+(?:instead|insted)\\s+of\\s+(\\d+(?:\\.\\d+)?)\\b"
-
-                        )
-
-                        .matcher(
-
-                                normalizedQuestion
-
-                        );
-
-        if (insteadMatcher.find()) {
-
-            newAmount =
-
-                    insteadMatcher.group(1);
-
-            oldAmount =
-
-                    insteadMatcher.group(2);
-
-        }
-
-        // --------------------------------------------------------
-
-        // 7. DETERMINISTIC OVERRIDE FOR "FROM OLD TO NEW"
-
-        // --------------------------------------------------------
-
-        java.util.regex.Matcher fromToMatcher =
-
-                java.util.regex.Pattern
-
-                        .compile(
-
-                                "(?i)\\bfrom\\s+(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b"
-
-                        )
-
-                        .matcher(
-
-                                normalizedQuestion
-
-                        );
-
-        if (fromToMatcher.find()) {
-
-            oldAmount =
-
-                    fromToMatcher.group(1);
-
-            newAmount =
-
-                    fromToMatcher.group(2);
-
-        }
-
-        // --------------------------------------------------------
-
-        // 8. EXPLICIT ID + "AMOUNT TO NEW_AMOUNT"
-
-        // --------------------------------------------------------
-
-        if (!incomeId.isEmpty()) {
-
-            java.util.regex.Matcher amountMatcher =
-
-                    java.util.regex.Pattern
-
-                            .compile(
-
-                                    "(?i)\\bamount\\s*(?:to|=)\\s*(\\d+(?:\\.\\d+)?)\\b"
-
-                            )
-
-                            .matcher(
-
-                                    normalizedQuestion
-
-                            );
-
-            if (amountMatcher.find()) {
-
-                newAmount =
-
-                        amountMatcher.group(1);
-
-            }
-
-        }
-
-        // --------------------------------------------------------
-
-        // 9. VALIDATE NEW AMOUNT
-
-        // --------------------------------------------------------
-
-        if (newAmount.isEmpty()) {
-
-            throw new Exception(
-
-                    "Could not find the new income amount."
-
-            );
-
-        }
-
-        try {
-
-            Double.parseDouble(
-
-                    newAmount
-
-            );
-
-            if (!oldAmount.isEmpty()) {
-
-                Double.parseDouble(
-
-                        oldAmount
-
-                );
-
-            }
-
-        } catch (NumberFormatException e) {
-
-            throw new Exception(
-
-                    "Invalid update income amount."
-
-            );
-
-        }
-
-        return new String[]{
-
-                incomeId,
-
-                oldAmount,
-
-                category,
-
-                newAmount,
-
-                description
-
-        };
-
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    // ============================================================
-
-    // EXTRACT EXPENSE DETAILS
-
-    // ============================================================
-
-    private String[] extractExpenseDetails(
-
-            String question)
-
-            throws Exception {
-
-        String prompt =
-
-                "Extract expense information from the user's message.\n\n"
-
-                + "Return ONLY this exact format:\n"
-
-                + "CATEGORY|AMOUNT|DESCRIPTION\n\n"
-
-                + "IMPORTANT RULES:\n"
-
-                + "1. Extract the numeric amount.\n"
-
-                + "2. Extract the real expense category if the user gives one.\n"
-
-                + "3. Words such as 'expense', 'exp', 'spent', 'add' are NOT categories.\n"
-
-                + "4. If the user only says expense without a real category, use Other as CATEGORY.\n"
-
-                + "5. If the user explicitly gives a category, use that category.\n"
-
-                + "6. If the user says 'particular X', first treat X as a possible category.\n"
-
-                + "7. If 'particular X' matches a real category, use X as CATEGORY.\n"
-
-                + "8. If 'particular X' does not look like a category, X may be DESCRIPTION.\n"
-
-                + "9. Do not use EXPENSE as the category.\n"
-
-                + "10. Return only CATEGORY|AMOUNT|DESCRIPTION.\n\n"
-
-
-
-
-
-
-
-
-
-                + "Examples:\n"
-
-                + "add food expense 500 -> Food|500|Food expense\n"
-
-                + "add food exp 500 -> Food|500|Food expense\n"
-
-                + "add 500 food -> Food|500|Food expense\n"
-
-                + "add 500 food and particular is Sarthak -> Food|500|Sarthak\n"
-
-                + "add 500 petrol description Bike fuel -> Petrol|500|Bike fuel\n"
-
-                + "add 200 and particular Rent -> Rent|200|Rent expense\n"
-
-                + "add expense 200 particular Rent -> Rent|200|Rent expense\n"
-
-                + "add 500 exp and particular Sarthak -> Other|500|Sarthak\n"
-
-                + "I spent 250 on shopping -> Shopping|250|Shopping expense\n"
-
-                + "spent 700 on travel -> Travel|700|Travel expense\n\n"
-
-
-
-
-
-
-
-
-
-                + "User message:\n"
-
-                + question;
-
-
-
-
-
-
-
-
-
-        String response =
-
-                callOllama(prompt);
-
-
-
-
-
-
-
-
-
-        response =
-
-                response
-
-                        .trim()
-
-                        
-
-                        .trim();
-
-
-
-
-
-
-
-
-
-        String[] lines =
-
-                response.split("\\r?\\n");
-
-
-
-
-
-
-
-
-
-        String dataLine = null;
-
-
-
-
-
-
-
-
-
-        for (String line : lines) {
-
-            line = line.trim();
-
-
-
-
-
-
-
-
-
-            if (line.contains("|") &&
-
-                    line.split("\\|").length >= 3) {
-
-                dataLine = line;
-
-                break;
-
-            }
-
-        }
-
-
-
-
-
-
-
-
-
-        if (dataLine == null) {
-
-            throw new Exception(
-
-                    "Could not extract expense details from AI response: "
-
-                            + response
-
-            );
-
-        }
-
-
-
-
-
-
-
-
-
-        String[] parts =
-
-                dataLine.split("\\|", 3);
-
-
-
-
-
-
-
-
-
-        if (parts.length != 3) {
-
-            throw new Exception(
-
-                    "Invalid expense format from AI: "
-
-                            + response
-
-            );
-
-        }
-
-
-
-
-
-
-
-
-
-        String category =
-
-                parts[0].trim();
-
-
-
-
-
-
-
-
-
-        String amountText =
-
-                parts[1]
-
-                        .trim()
-
-                        .replaceAll(
-
-                                "[^0-9.]",
-
-                                ""
-
-                        );
-
-
-
-
-
-
-
-
-
-        String description =
-
-                parts[2].trim();
-
-
-
-
-
-
-
-
-
-        // --------------------------------------------------------
-
-        // PREVENT INVALID CATEGORY
-
-        // --------------------------------------------------------
-
-        if (category.equalsIgnoreCase("expense") ||
-
-                category.equalsIgnoreCase("exp") ||
-
-                category.equalsIgnoreCase("spent") ||
-
-                category.equalsIgnoreCase("add")) {
-
-            category =
-
-                    "Other";
-
-        }
-
-
-
-
-
-
-
-
-
-        if (category.isEmpty()) {
-
-            category =
-
-                    "Other";
-
-        }
-
-
-
-
-
-
-
-
-
-        if (description.isEmpty()) {
-
-            description =
-
-                    category + " expense";
-
-        }
-
-
-
-
-
-
-
-
-
-        if (amountText.isEmpty()) {
-
-            throw new Exception(
-
-                    "Could not find expense amount."
-
-            );
-
-        }
-
-
-
-
-
-
-
-
-
-        double amount;
-
-
-
-
-
-
-
-
-
-        try {
-
-            amount =
-
-                    Double.parseDouble(
-
-                            amountText
-
-                    );
-
-        } catch (NumberFormatException e) {
-
-            throw new Exception(
-
-                    "Invalid expense amount: "
-
-                            + amountText
-
-            );
-
-        }
-
-
-
-
-
-
-
-
-
-        return new String[]{
-
-                category,
-
-                String.valueOf(amount),
-
-                description
-
-        };
-
-    }
-
-
-
-
-
-
-
-
-
-    // ============================================================
-
-    // EXTRACT UPDATE EXPENSE DETAILS
-
-    // ============================================================
-
-    private String[] extractUpdateExpenseDetails(String question) throws Exception {
-
-        String q = question == null ? "" : question.trim().replaceAll("\\s+", " ");
-
-        String expenseId = "";
-        String category = "";
-        String oldAmount = "";
-        String newAmount = "";
-        String description = "";
-
-        // Explicit ID only. This prevents 500 from becoming the ID in
-        // commands such as: update bike expense 500 to 200
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
-                "(?i)\\b(?:expense|transaction)\\s+id\\s*#?(\\d+)\\b")
-                .matcher(q);
-
-        if (m.find()) {
-            expenseId = m.group(1);
-        } else {
-            m = java.util.regex.Pattern.compile("(?i)\\bid\\s*#?(\\d+)\\b").matcher(q);
-            if (m.find()) {
-                expenseId = m.group(1);
-            } else {
-                m = java.util.regex.Pattern.compile(
-                        "(?i)\\bexpense\\s+#?(\\d+)\\s+(?=(?:amount|category|description|to|as)\\b)")
-                        .matcher(q);
-                if (m.find()) {
-                    expenseId = m.group(1);
-                }
-            }
-        }
-
-        // from OLD to NEW
-        m = java.util.regex.Pattern.compile(
-                "(?i)\\bfrom\\s+(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b")
-                .matcher(q);
-        if (m.find()) {
-            oldAmount = m.group(1);
-            newAmount = m.group(2);
-        }
-
-        // OLD to NEW when there is no explicit ID.
-        if (newAmount.isEmpty() && expenseId.isEmpty()) {
-            m = java.util.regex.Pattern.compile(
-                    "(?i)\\b(\\d+(?:\\.\\d+)?)\\s+to\\s+(\\d+(?:\\.\\d+)?)\\b")
-                    .matcher(q);
-            if (m.find()) {
-                oldAmount = m.group(1);
-                newAmount = m.group(2);
-            }
-        }
-
-        // Explicit ID + new amount.
-        if (newAmount.isEmpty() && !expenseId.isEmpty()) {
-            m = java.util.regex.Pattern.compile(
-                    "(?i)\\b(?:amount\\s*)?(?:to|=)\\s*(\\d+(?:\\.\\d+)?)\\b")
-                    .matcher(q);
-            if (m.find()) {
-                newAmount = m.group(1);
-            }
-        }
-
-        if (!expenseId.isEmpty() && newAmount.isEmpty()) {
-            m = java.util.regex.Pattern.compile(
-                    "(?i)\\bamount\\s*(?:to|=)?\\s*(\\d+(?:\\.\\d+)?)\\b")
-                    .matcher(q);
-            if (m.find()) {
-                newAmount = m.group(1);
-            }
-        }
-
-        // Ask Ollama only for category/description. Amounts are parsed
-        // deterministically so the model cannot confuse ID and amount.
-        String prompt =
-                "Extract expense update information from the user's message.\\n\\n"
-                + "Return ONLY: CATEGORY|NEW_AMOUNT|DESCRIPTION\\n"
-                + "Use the real category. Do not treat numbers as categories.\\n"
-                + "Examples:\n"
-                + "update bike expense 500 to 200 -> Bike|200|\\n"
-                + "update food expense 500 to 700 -> Food|700|\\n"
-                + "update expense 18 to travel 900 -> Travel|900|\\n\\n"
-                + "User message:\n" + q;
-
-        try {
-            String response = callOllama(prompt).trim().replace("```", "");
-            for (String line : response.split("\\r?\\n")) {
-                line = line.trim();
-                if (!line.contains("|")) continue;
-                String[] parts = line.split("\\|", 3);
-                if (parts.length == 3) {
-                    if (category.isEmpty()) category = parts[0].trim();
-                    if (newAmount.isEmpty()) {
-                        newAmount = parts[1].trim().replaceAll("[^0-9.]", "");
-                    }
-                    description = parts[2].trim();
-                    break;
-                }
-            }
-        } catch (Exception e) {
-            System.out.println("Update expense AI extraction skipped: " + e.getMessage());
-        }
-
-        if (category.equalsIgnoreCase("expense") ||
-                category.equalsIgnoreCase("exp") ||
-                category.equalsIgnoreCase("update") ||
-                category.equalsIgnoreCase("change") ||
-                category.equalsIgnoreCase("amount") ||
-                category.equalsIgnoreCase("to") ||
-                category.equalsIgnoreCase("from") ||
-                category.matches("\\d+(?:\\.\\d+)?")) {
-            category = "";
-        }
-
-        if (newAmount.isEmpty()) {
-            throw new Exception("Could not find the new expense amount.");
-        }
-
-        try {
-            Double.parseDouble(newAmount);
-            if (!oldAmount.isEmpty()) Double.parseDouble(oldAmount);
-        } catch (NumberFormatException e) {
-            throw new Exception("Invalid expense amount in update command.");
-        }
-
-        if (category.isEmpty()) category = "Other";
-        if (description.isEmpty()) description = category + " expense";
-
-        return new String[]{expenseId, category, oldAmount, newAmount, description};
-    }
-
-
-    // ============================================================
-    // FIND EXISTING EXPENSE CATEGORY BY ID
-    // ============================================================
-    private String findExpenseCategoryById(int userId, int expenseId) {
-        try {
-            List<Map<String, Object>> transactions =
-                    transactionTool.getRecentTransactions(userId, 10000);
-
-            if (transactions == null) return null;
-
-            for (Map<String, Object> row : transactions) {
-                if (row == null) continue;
-
-                Object idObj = getMapValue(
-                        row,
-                        "id",
-                        "expense_id",
-                        "expenseId",
-                        "transaction_id",
-                        "transactionId"
-                );
-
-                if (idObj == null) continue;
-
-                int id;
-                try {
-                    id = Integer.parseInt(String.valueOf(idObj));
-                } catch (NumberFormatException e) {
-                    continue;
-                }
-
-                if (id != expenseId) continue;
-
-                Object typeObj = getMapValue(
-                        row,
-                        "type",
-                        "transaction_type",
-                        "transactionType"
-                );
-
-                if (typeObj != null &&
-                        String.valueOf(typeObj).toLowerCase().contains("income")) {
-                    return null;
-                }
-
-                Object categoryObj = getMapValue(
-                        row,
-                        "category",
-                        "category_name",
-                        "categoryName"
-                );
-
-                return categoryObj == null ? null : String.valueOf(categoryObj);
-            }
-        } catch (Exception e) {
-            System.out.println(
-                    "Could not find expense category by ID: " + e.getMessage()
-            );
-        }
-
-        return null;
-    }
-
-    // ============================================================
-    // FIND EXPENSE ID USING CATEGORY + OLD AMOUNT
-    // ============================================================
-    private int findExpenseIdByCategoryAndAmount(int userId, String category, double oldAmount) {
-        try {
-            List<Map<String, Object>> transactions =
-                    transactionTool.getRecentTransactions(userId, 10000);
-
-            if (transactions == null) return -1;
-
-            for (Map<String, Object> row : transactions) {
-                if (row == null) continue;
-
-                Object typeObj = getMapValue(row, "type", "transaction_type", "transactionType");
-                if (typeObj != null && String.valueOf(typeObj).toLowerCase().contains("income")) {
-                    continue;
-                }
-
-                Object categoryObj = getMapValue(row, "category", "category_name", "categoryName");
-                Object amountObj = getMapValue(row, "amount", "expense_amount", "expenseAmount");
-                Object idObj = getMapValue(row, "id", "expense_id", "expenseId", "transaction_id", "transactionId");
-
-                if (categoryObj == null || amountObj == null || idObj == null) continue;
-                if (!String.valueOf(categoryObj).trim().equalsIgnoreCase(category == null ? "" : category.trim())) continue;
-
-                double dbAmount;
-                try { dbAmount = Double.parseDouble(String.valueOf(amountObj)); }
-                catch (NumberFormatException e) { continue; }
-
-                if (Math.abs(dbAmount - oldAmount) > 0.0001) continue;
-
-                try { return Integer.parseInt(String.valueOf(idObj)); }
-                catch (NumberFormatException ignored) { }
-            }
-        } catch (Exception e) {
-            System.out.println("Could not find expense by category + amount: " + e.getMessage());
-        }
-        return -1;
-    }
-
-    private Object getMapValue(Map<String, Object> row, String... keys) {
-        for (String key : keys) {
-            if (row.containsKey(key)) return row.get(key);
-        }
-        for (Map.Entry<String, Object> entry : row.entrySet()) {
-            if (entry.getKey() == null) continue;
-            for (String key : keys) {
-                if (entry.getKey().equalsIgnoreCase(key)) return entry.getValue();
-            }
-        }
-        return null;
-    }
-
-    
 // EXTRACT TRANSACTION / EXPENSE ID
 
-    // ============================================================
+// ============================================================
 
-    private int extractTransactionId(
+private int extractTransactionId(
 
-            String question)
+String question)
 
-            throws Exception {
+throws Exception {
 
-        String prompt =
+String prompt =
 
-                "Extract the expense ID from the user's message.\n\n"
+"Extract the expense ID from the user's message.\n\n"
 
-                + "Return ONLY the number.\n\n"
++ "Return ONLY the number.\n\n"
 
-                + "Examples:\n"
++ "Examples:\n"
 
-                + "delete transaction 25 -> 25\n"
++ "delete transaction 25 -> 25\n"
 
-                + "delete expense 10 -> 10\n"
++ "delete expense 10 -> 10\n"
 
-                + "remove transaction 7 -> 7\n"
++ "remove transaction 7 -> 7\n"
 
-                + "delete transaction id 15 -> 15\n\n"
++ "delete transaction id 15 -> 15\n\n"
 
-                + "User message:\n"
++ "User message:\n"
 
-                + question;
++ question;
 
+String response =
 
+callOllama(prompt);
 
+response =
 
+response.trim();
 
+response =
 
+response.replaceAll(
 
+"[^0-9]",
 
+""
 
-        String response =
+);
 
-                callOllama(prompt);
+if (response.isEmpty()) {
 
+return -1;
 
+}
 
+return Integer.parseInt(
 
+response
 
+);
 
+}
 
+// ============================================================
 
+// FINAL AI RESPONSE
 
-        response =
+// ============================================================
 
-                response.trim();
+private String generateFinalAnswer(
 
+String question,
 
+String financialData)
 
+throws Exception {
 
+String prompt =
 
+"You are a helpful AI financial assistant.\n\n"
 
++ "User question:\n"
 
++ question
 
++ "\n\n"
 
-        response =
++ "Verified financial data from the user's database:\n"
 
-                response.replaceAll(
++ financialData
 
-                        "[^0-9]",
++ "\n\n"
 
-                        ""
++ "Answer the user's question using ONLY the "
 
-                );
++ "verified financial data above.\n"
 
++ "Do not invent numbers.\n"
 
++ "Do not mention tools, databases, SQL, or internal systems.\n"
 
++ "Keep the answer concise and easy to understand.";
 
+return callOllama(
 
+prompt
 
+);
 
+}
 
+// ============================================================
 
-        if (response.isEmpty()) {
+// OLLAMA API CALL
 
-            return -1;
+// ============================================================
 
+private String callOllama(
+
+String prompt)
+
+throws IOException, InterruptedException {
+
+String json = """
+
+{"model":"%s","messages":[{"role":"user","content":"%s"}],"stream":false,"think":false,"keep_alive":"5m"}
+
+""".formatted(
+
+MODEL,
+
+escapeJson(prompt)
+
+);
+
+HttpRequest request =
+
+HttpRequest.newBuilder()
+
+.uri(
+
+URI.create(
+
+OLLAMA_URL
+
+)
+
+)
+
+.header(
+
+"Content-Type",
+
+"application/json"
+
+)
+
+.POST(
+
+HttpRequest.BodyPublishers
+
+.ofString(
+
+json
+
+)
+
+)
+
+.build();
+
+HttpResponse<String> response =
+
+httpClient.send(
+
+request,
+
+HttpResponse.BodyHandlers
+
+.ofString()
+
+);
+
+System.out.println(
+
+"Ollama HTTP status: "
+
++ response.statusCode()
+
+);
+
+if (response.statusCode() != 200) {
+
+throw new IOException(
+
+"Ollama error: "
+
++ response.body()
+
+);
+
+}
+
+return extractContent(
+
+response.body()
+
+);
+
+}
+
+private String extractContent(String json) {
+    String marker = "\"content\":\"";
+    int start = json.indexOf(marker);
+    if (start < 0) {
+        return "Sorry, I could not understand the AI response.";
+    }
+
+    start += marker.length();
+    StringBuilder result = new StringBuilder();
+    boolean escaped = false;
+
+    for (int i = start; i < json.length(); i++) {
+        char c = json.charAt(i);
+
+        if (escaped) {
+            if (c == 'n') result.append('\n');
+            else if (c == 't') result.append('\t');
+            else if (c == 'r') result.append('\r');
+            else if (c == '"') result.append('"');
+            else if (c == '\\') result.append('\\');
+            else result.append(c);
+            escaped = false;
+            continue;
         }
 
-
-
-
-
-
-
-
-
-        return Integer.parseInt(
-
-                response
-
-        );
-
-    }
-
-
-
-
-
-
-
-
-
-    // ============================================================
-
-    // FINAL AI RESPONSE
-
-    // ============================================================
-
-    private String generateFinalAnswer(
-
-            String question,
-
-            String financialData)
-
-            throws Exception {
-
-        String prompt =
-
-                "You are a helpful AI financial assistant.\n\n"
-
-                + "User question:\n"
-
-                + question
-
-                + "\n\n"
-
-                + "Verified financial data from the user's database:\n"
-
-                + financialData
-
-                + "\n\n"
-
-                + "Answer the user's question using ONLY the "
-
-                + "verified financial data above.\n"
-
-                + "Do not invent numbers.\n"
-
-                + "Do not mention tools, databases, SQL, or internal systems.\n"
-
-                + "Keep the answer concise and easy to understand.";
-
-
-
-
-
-
-
-
-
-        return callOllama(
-
-                prompt
-
-        );
-
-    }
-
-
-
-
-
-
-
-
-
-    // ============================================================
-
-    // OLLAMA API CALL
-
-    // ============================================================
-
-    private String callOllama(
-
-            String prompt)
-
-            throws IOException, InterruptedException {
-
-        String json = """
-
-                {"model":"%s","messages":[{"role":"user","content":"%s"}],"stream":false,"think":false,"keep_alive":"5m"}
-
-                """.formatted(
-
-                        MODEL,
-
-                        escapeJson(prompt)
-
-                );
-
-        HttpRequest request =
-
-                HttpRequest.newBuilder()
-
-                        .uri(
-
-                                URI.create(
-
-                                        OLLAMA_URL
-
-                                )
-
-                        )
-
-                        .header(
-
-                                "Content-Type",
-
-                                "application/json"
-
-                        )
-
-                        .POST(
-
-                                HttpRequest.BodyPublishers
-
-                                        .ofString(
-
-                                                json
-
-                                        )
-
-                        )
-
-                        .build();
-
-        HttpResponse<String> response =
-
-                httpClient.send(
-
-                        request,
-
-                        HttpResponse.BodyHandlers
-
-                                .ofString()
-
-                );
-
-        System.out.println(
-
-                "Ollama HTTP status: "
-
-                        + response.statusCode()
-
-        );
-
-        if (response.statusCode() != 200) {
-
-            throw new IOException(
-
-                    "Ollama error: "
-
-                            + response.body()
-
-            );
-
+        if (c == '\\') {
+            escaped = true;
+            continue;
         }
-
-        return extractContent(
-
-                response.body()
-
-        );
-
+        if (c == '"') break;
+        result.append(c);
     }
+    return result.toString().trim();
+}
+
+// JSON ESCAPE
+private String escapeJson(String text) {
+    if (text == null) return "";
+    return text
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\r", "\\r")
+            .replace("\n", "\\n")
+            .replace("\t", "\\t");
+}
+
+// NUMBER FORMAT
+
+// ============================================================
+
+private String format(
+
+double value) {
+
+return String.format(
+
+"%.2f",
+
+value
+
+);
+
+}
 
 
 
-
-
-
-
-
-
-    private String extractContent(String json) {
-        String marker = "\"content\":\"";
-        int start = json.indexOf(marker);
-
-        if (start == -1) {
-            return "Sorry, I could not understand the AI response.";
+// Extracts the first monetary value from a question, e.g. "below ₹500".
+private double extractFirstAmount(String question) {
+    Matcher matcher = Pattern.compile("(\\d+(?:\\.\\d{1,2})?)").matcher(question);
+    if (matcher.find()) {
+        try {
+            return Double.parseDouble(matcher.group(1));
+        } catch (NumberFormatException ignored) {
+            return 0.0;
         }
+    }
+    return 0.0;
+}
 
-        start += marker.length();
-        StringBuilder result = new StringBuilder();
-        boolean escaped = false;
-
-        for (int i = start; i < json.length(); i++) {
-            char c = json.charAt(i);
-
-            if (escaped) {
-                if (c == 'n') result.append('\n');
-                else if (c == 't') result.append('\t');
-                else if (c == 'r') result.append('\r');
-                else if (c == '"') result.append('"');
-                else if (c == '\\') result.append('\\');
-                else result.append(c);
-
-                escaped = false;
-                continue;
-            }
-
-            if (c == '\\') {
-                escaped = true;
-                continue;
-            }
-
-            if (c == '"') {
-                break;
-            }
-
-            result.append(c);
+// Uses 10 days by default; supports phrases such as "last 7 days".
+private int extractDays(String question, int defaultDays) {
+    Matcher matcher = Pattern.compile("\\b(?:last|past|previous)\\s+(\\d+)\\s+days?\\b",
+            Pattern.CASE_INSENSITIVE).matcher(question);
+    if (matcher.find()) {
+        try {
+            int days = Integer.parseInt(matcher.group(1));
+            return Math.max(1, Math.min(days, 3650));
+        } catch (NumberFormatException ignored) {
+            return defaultDays;
         }
-
-        return result.toString().trim();
     }
-
-
-    // JSON ESCAPE
-
-    // ============================================================
-
-    private String escapeJson(String text) {
-        if (text == null) return "";
-        return text
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\r", "\\r")
-                .replace("\n", "\\n")
-                .replace("\t", "\\t");
-    }
-
-
-    // NUMBER FORMAT
-
-    // ============================================================
-
-    private String format(
-
-            double value) {
-
-        return String.format(
-
-                "%.2f",
-
-                value
-
-        );
-
-    }
+    return defaultDays;
+}
 
 }

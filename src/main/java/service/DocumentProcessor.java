@@ -1,1366 +1,355 @@
 package service;
 
+import model.ExtractedTransaction;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import model.ExtractedTransaction;
-
-/*
- * ============================================================
- * SMART EXPENSE TRACKER + MULTI-BANK STATEMENT PROCESSOR
- * ============================================================
- *
- * Main fixes:
- *
- * 1. Correctly extracts the FIRST money value as transaction
- *    amount and the LAST money value as running balance.
- *
- * 2. Removes both amount and balance from the description,
- *    even when PDFBox places them in the middle of the text.
- *
- * 3. Removes dates, times, cheque/reference numbers and long
- *    UPI references before extracting money values.
- *
- * 4. Detects Canara UPI/DR as EXPENSE and UPI/CR as INCOME.
- *
- * 5. Uses running balance only as a fallback for transaction type.
- *
- * 6. Keeps support for Smart Expense Tracker text format.
+/**
+ * Extracts transactions from Smart Expense Tracker exports and text-based bank
+ * statements. Opening balance is detected dynamically from the statement text.
+ * Scanned/image-only PDFs require OCR before this class can parse them.
  */
 public class DocumentProcessor {
 
-    // ============================================================
-    // MAIN PROCESS METHOD
-    // ============================================================
+    /** Extracts the opening balance dynamically for the servlet/JSP. */
+    public double getOpeningBalance(String text) {
+        return extractOpeningBalance(text);
+    }
+
+    private static final Pattern SMART_FORMAT = Pattern.compile(
+        "^(\\d{4}-\\d{2}-\\d{2})\\s+(Income|Expense)\\s+(\\S+)\\s+(.+?)\\s+([0-9,]+(?:\\.\\d{1,2})?)$",
+        Pattern.CASE_INSENSITIVE
+    );
+
+    private static final String DATE_PATTERN =
+        "(?:\\d{2}[-/]\\d{2}[-/]\\d{4}|\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}|\\d{2}-[A-Za-z]{3}-\\d{4})";
+
+    private static final Pattern DATE_AT_LINE_START = Pattern.compile(
+        "^\\s*(?:(\\d{1,4})\\s+)?(" + DATE_PATTERN + ")\\b"
+    );
+
+    private static final Pattern MONEY = Pattern.compile(
+        "(?<![A-Za-z0-9])(-?(?:\\d{1,3}(?:,\\d{2,3})+|\\d+))\\.(\\d{1,2})(?![A-Za-z0-9])"
+    );
 
     public List<ExtractedTransaction> processText(String text) {
-
         List<ExtractedTransaction> transactions = new ArrayList<>();
+        if (text == null || text.trim().isEmpty()) return transactions;
 
-        if (text == null || text.trim().isEmpty()) {
-            return transactions;
-        }
+        String normalized = normalizeText(text);
+        transactions.addAll(processSmartExpenseFormat(normalized));
+        if (!transactions.isEmpty()) return transactions;
 
-        System.out.println("======================================");
-        System.out.println("DocumentProcessor started");
-        System.out.println("Original text length: " + text.length());
-        System.out.println("======================================");
-
-        text = normalizeText(text);
-
-        // ========================================================
-        // STEP 1: SMART EXPENSE TRACKER FORMAT
-        // ========================================================
-
-        transactions.addAll(processSmartExpenseFormat(text));
-
-        if (!transactions.isEmpty()) {
-
-            System.out.println(
-                    "Smart Expense Tracker format detected."
-            );
-
-            System.out.println(
-                    "Transactions found: " + transactions.size()
-            );
-
-            return transactions;
-        }
-
-        // ========================================================
-        // STEP 2: BANK STATEMENT
-        // ========================================================
-
-        transactions = processBankStatementFormat(text);
-
-        System.out.println(
-                "Bank transactions found: " + transactions.size()
-        );
-
-        return transactions;
+        return processBankStatementFormat(normalized);
     }
-
-    // ============================================================
-    // NORMALIZE PDF TEXT
-    // ============================================================
 
     private String normalizeText(String text) {
-
-        text = text.replace("\r", "");
-
-        // Keep newline and tab, remove other control characters.
-        text = text.replaceAll(
-                "[\\p{Cntrl}&&[^\r\n\t]]",
-                ""
-        );
-
-        // Normalize spaces but keep line breaks.
-        text = text.replaceAll(
-                "[ \t]+",
-                " "
-        );
-
-        return text;
+        return text.replace('\u00A0', ' ')
+                   .replace("\r", "")
+                   .replaceAll("[\\p{Cntrl}&&[^\\n\\t]]", "")
+                   .replaceAll("[\\t ]+", " ");
     }
 
-    // ============================================================
-    // SMART EXPENSE TRACKER FORMAT
-    // ============================================================
+    private List<ExtractedTransaction> processSmartExpenseFormat(String text) {
+        List<ExtractedTransaction> result = new ArrayList<>();
+        for (String rawLine : text.split("\\n")) {
+            Matcher m = SMART_FORMAT.matcher(rawLine.trim());
+            if (!m.matches()) continue;
 
-    private List<ExtractedTransaction>
-    processSmartExpenseFormat(String text) {
-
-        List<ExtractedTransaction> transactions =
-                new ArrayList<>();
-
-        String[] lines = text.split("\\r?\\n");
-
-        /*
-         * Example:
-         *
-         * 2026-08-12 Expense Food Lunch 350.00
-         */
-
-        Pattern pattern = Pattern.compile(
-                "^(\\d{4}-\\d{2}-\\d{2})\\s+"
-                + "(Income|Expense)\\s+"
-                + "(\\S+)\\s+"
-                + "(.+?)\\s+"
-                + "([0-9,]+(?:\\.\\d{1,2})?)$",
-                Pattern.CASE_INSENSITIVE
-        );
-
-        for (String line : lines) {
-
-            line = line.trim();
-
-            if (line.isEmpty()) {
-                continue;
-            }
-
-            if (line.equalsIgnoreCase(
-                    "Date Type Category Description Amount")) {
-                continue;
-            }
-
-            if (line.startsWith("Total Income")) {
-                continue;
-            }
-
-            if (line.startsWith("Total Expense")) {
-                continue;
-            }
-
-            if (line.startsWith("Balance")) {
-                continue;
-            }
-
-            Matcher matcher = pattern.matcher(line);
-
-            if (!matcher.matches()) {
-                continue;
-            }
-
-            try {
-
-                String date = matcher.group(1);
-
-                String type =
-                        matcher.group(2).toUpperCase(Locale.ENGLISH);
-
-                String category = matcher.group(3);
-
-                String description = matcher.group(4);
-
-                double amount =
-                        parseAmount(matcher.group(5));
-
-                ExtractedTransaction transaction =
-                        new ExtractedTransaction();
-
-                transaction.setDate(date);
-                transaction.setType(type);
-                transaction.setCategory(category);
-                transaction.setDescription(description);
-                transaction.setAmount(amount);
-
-                transactions.add(transaction);
-
-            } catch (Exception e) {
-
-                System.out.println(
-                        "Smart format error: "
-                                + e.getMessage()
-                );
-            }
+            ExtractedTransaction tx = new ExtractedTransaction();
+            tx.setDate(m.group(1));
+            tx.setType(m.group(2).equalsIgnoreCase("income") ? "INCOME" : "EXPENSE");
+            tx.setCategory(m.group(3));
+            tx.setDescription(m.group(4).trim());
+            tx.setAmount(parseAmount(m.group(5)));
+            result.add(tx);
         }
-
-        return transactions;
+        return result;
     }
 
-    // ============================================================
-    // BANK STATEMENT PROCESSOR
-    // ============================================================
+    private List<ExtractedTransaction> processBankStatementFormat(String text) {
+        List<ExtractedTransaction> result = new ArrayList<>();
+        String[] lines = text.split("\\n");
+        double previousBalance = extractOpeningBalance(text);
+        System.out.println("Detected statement opening balance: " +
+                (Double.isFinite(previousBalance) ? String.format(Locale.ROOT, "%.2f", previousBalance) : "NOT FOUND"));
 
-    private List<ExtractedTransaction>
-    processBankStatementFormat(String text) {
+        StringBuilder block = new StringBuilder();
+        boolean inTransactionSection = false;
 
-        List<ExtractedTransaction> transactions =
-                new ArrayList<>();
+        for (String rawLine : lines) {
+            String line = rawLine.trim();
+            if (line.isEmpty()) continue;
+            String lower = line.toLowerCase(Locale.ROOT);
 
-        double previousBalance =
-                extractOpeningBalance(text);
-
-        System.out.println(
-                "Opening Balance = " + previousBalance
-        );
-
-        // ========================================================
-        // SPLIT STATEMENT INTO TRANSACTION BLOCKS
-        // ========================================================
-
-        /*
-         * Handles:
-         *
-         * 01-02-2026
-         * 01/02/2026
-         * 02 Jul 2026
-         * 02-Jul-2026
-         *
-         * Optional leading serial number is also supported.
-         */
-
-        Pattern transactionStart = Pattern.compile(
-                "(?m)(?=^\\s*(?:\\d+\\s+)?(?:"
-                + "\\d{2}[-/]\\d{2}[-/]\\d{4}"
-                + "|"
-                + "\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}"
-                + "|"
-                + "\\d{2}-[A-Za-z]{3}-\\d{4}"
-                + ")\\b)"
-        );
-
-        String[] blocks = transactionStart.split(text);
-
-        System.out.println(
-                "Possible transaction blocks = "
-                        + blocks.length
-        );
-
-        for (String block : blocks) {
-
-            block = block.trim();
-
-            if (block.isEmpty()) {
+            if (lower.contains("savings account transactions") || lower.contains("account transactions")) {
+                inTransactionSection = true;
                 continue;
             }
 
-            if (isBankHeader(block)) {
-                continue;
-            }
-
-            try {
-
-                ExtractedTransaction transaction =
-                        parseBankTransaction(
-                                block,
-                                previousBalance
-                        );
-
-                if (transaction == null) {
-                    continue;
+            if (inTransactionSection && (lower.contains("account summary")
+                    || lower.contains("end of statement")
+                    || lower.contains("statement generated on")
+                    || lower.contains("important information")
+                    || lower.contains("commonly used narrations"))) {
+                if (block.length() > 0) {
+                    double newBalance = appendParsedBlock(result, block.toString(), previousBalance);
+                    if (Double.isFinite(newBalance)) previousBalance = newBalance;
+                    block.setLength(0);
                 }
+                inTransactionSection = false;
+                continue;
+            }
 
-                transactions.add(transaction);
+            if (!inTransactionSection || isTableHeader(line) || isBoilerplateLine(line)) continue;
 
-                // Update previous balance using the last money
-                // value in this transaction.
-                double newBalance =
-                        extractLastBalance(block);
-
-                if (!Double.isNaN(newBalance)) {
-                    previousBalance = newBalance;
+            Matcher start = DATE_AT_LINE_START.matcher(line);
+            if (start.find()) {
+                if (block.length() > 0) {
+                    double newBalance = appendParsedBlock(result, block.toString(), previousBalance);
+                    if (Double.isFinite(newBalance)) previousBalance = newBalance;
                 }
-
-                System.out.println(
-                        "FOUND: "
-                                + transaction.getDate()
-                                + " | "
-                                + transaction.getType()
-                                + " | Amount = "
-                                + transaction.getAmount()
-                                + " | "
-                                + transaction.getDescription()
-                );
-
-            } catch (Exception e) {
-
-                System.out.println(
-                        "Unable to parse block:"
-                );
-
-                System.out.println(block);
-
-                System.out.println(
-                        e.getMessage()
-                );
+                block.setLength(0);
+                block.append(line);
+            } else if (block.length() > 0 && !isBoilerplateLine(line)) {
+                block.append(' ').append(line);
             }
         }
 
-        return transactions;
+        if (block.length() > 0) {
+            appendParsedBlock(result, block.toString(), previousBalance);
+        }
+        return result;
     }
 
-    // ============================================================
-    // PARSE ONE BANK TRANSACTION
-    // ============================================================
-
-    private ExtractedTransaction
-    parseBankTransaction(
-            String block,
-            double previousBalance) {
-
-        // --------------------------------------------------------
-        // DATE
-        // --------------------------------------------------------
-
-        String date = extractDate(block);
-
-        if (date == null) {
-            return null;
-        }
-
-        // --------------------------------------------------------
-        // MONEY VALUES
-        // --------------------------------------------------------
-
-        List<Double> numbers =
-                extractMoneyValues(block);
-
-        /*
-         * Canara statement example:
-         *
-         * 50.00 9,407.00
-         *
-         * 50.00    = transaction amount
-         * 9,407.00 = running balance
-         *
-         * We intentionally require at least two money values.
-         */
-
-        if (numbers.size() < 2) {
-
-            System.out.println(
-                    "No amount/balance found:"
-            );
-
-            System.out.println(block);
-
-            return null;
-        }
-
-        /*
-         * IMPORTANT:
-         *
-         * Last money value = balance
-         * Previous money value = transaction amount
-         *
-         * This is safer than taking a random number from the
-         * description/reference text.
-         */
-
-        double currentBalance =
-                numbers.get(numbers.size() - 1);
-
-        double amount =
-                numbers.get(numbers.size() - 2);
-
-        System.out.println(
-                "Money values = " + numbers
-        );
-
-        System.out.println(
-                "Transaction amount = " + amount
-        );
-
-        System.out.println(
-                "Current balance = " + currentBalance
-        );
-
-        // --------------------------------------------------------
-        // DESCRIPTION
-        // --------------------------------------------------------
-
-        String description =
-                extractDescription(
-                        block,
-                        amount,
-                        currentBalance
-                );
-
-        // --------------------------------------------------------
-        // TYPE
-        // --------------------------------------------------------
-
-        String type =
-                detectTransactionType(
-                        block,
-                        previousBalance,
-                        amount,
-                        currentBalance
-                );
-
-        // --------------------------------------------------------
-        // CATEGORY
-        // --------------------------------------------------------
-
-        String category =
-                detectCategory(description);
-
-        // --------------------------------------------------------
-        // CREATE OBJECT
-        // --------------------------------------------------------
-
-        ExtractedTransaction transaction =
-                new ExtractedTransaction();
-
-        transaction.setDate(date);
-        transaction.setType(type);
-        transaction.setCategory(category);
-        transaction.setDescription(description);
-        transaction.setAmount(amount);
-
-        return transaction;
+    private double appendParsedBlock(List<ExtractedTransaction> output, String block, double previousBalance) {
+        ParsedBankTransaction parsed = parseBankBlock(block, previousBalance);
+        if (parsed == null) return Double.NaN;
+        output.add(parsed.transaction);
+        return parsed.balance;
     }
 
-    // ============================================================
-    // EXTRACT DATE
-    // ============================================================
+    private ParsedBankTransaction parseBankBlock(String block, double previousBalance) {
+        Matcher dateMatcher = DATE_AT_LINE_START.matcher(block);
+        if (!dateMatcher.find() || isBoilerplateLine(block)) return null;
 
-    private String extractDate(String block) {
-
-        Pattern pattern = Pattern.compile(
-                "^\\s*(?:\\d+\\s+)?("
-                + "\\d{2}[-/]\\d{2}[-/]\\d{4}"
-                + "|"
-                + "\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}"
-                + "|"
-                + "\\d{2}-[A-Za-z]{3}-\\d{4}"
-                + ")"
-        );
-
-        Matcher matcher = pattern.matcher(block);
-
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-
-        return null;
-    }
-
-    // ============================================================
-    // EXTRACT DESCRIPTION
-    // ============================================================
-
-    private String extractDescription(
-            String block,
-            double amount,
-            double balance) {
-
-        String description = block;
-
-        // --------------------------------------------------------
-        // Remove optional serial number + date from beginning.
-        // --------------------------------------------------------
-
-        description = description.replaceFirst(
-                "^\\s*(?:\\d+\\s+)?(?:"
-                + "\\d{2}[-/]\\d{2}[-/]\\d{4}"
-                + "|"
-                + "\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}"
-                + "|"
-                + "\\d{2}-[A-Za-z]{3}-\\d{4}"
-                + ")",
-                ""
-        );
+        String rawDate = dateMatcher.group(2);
+        String date = normalizeDate(rawDate);
+        String upper = block.toUpperCase(Locale.ROOT);
+        List<Double> values = extractMoneyValues(block);
+        if (values.isEmpty()) return null;
 
         /*
-         * --------------------------------------------------------
-         * Remove the transaction amount + balance ANYWHERE in
-         * the block.
-         *
-         * Old code only removed them when they were at the END.
-         * PDFBox can place Canara statement columns like this:
-         *
-         * description ... 50.00 9,407.00 20:24:23 ...
-         *
-         * Therefore we remove the exact pair wherever it occurs.
-         * --------------------------------------------------------
+         * In the Kotak statement, the final money value in each transaction
+         * block is the running balance. When a previous balance is available,
+         * infer the amount and direction from the change in balance.
          */
+        double currentBalance = values.get(values.size() - 1);
+        double delta = Double.isFinite(previousBalance)
+                ? round2(currentBalance - previousBalance) : Double.NaN;
+        double amount;
+        String type;
 
-        String amountText =
-                formatMoneyForRegex(amount);
-
-        String balanceText =
-                formatMoneyForRegex(balance);
-
-        String moneyPairRegex =
-                "(?<![A-Za-z0-9])"
-                + Pattern.quote(amountText)
-                + "\\s+"
-                + Pattern.quote(balanceText)
-                + "(?![A-Za-z0-9])";
-
-        description = description.replaceFirst(
-                moneyPairRegex,
-                " "
-        );
-
-        /*
-         * Sometimes the PDF contains the same values without
-         * comma formatting. Try the plain numeric representation
-         * as a second pass.
-         */
-
-        String amountPlain =
-                String.format(Locale.ENGLISH, "%.2f", amount);
-
-        String balancePlain =
-                String.format(Locale.ENGLISH, "%.2f", balance);
-
-        String plainPairRegex =
-                "(?<![A-Za-z0-9])"
-                + Pattern.quote(amountPlain)
-                + "\\s+"
-                + Pattern.quote(balancePlain)
-                + "(?![A-Za-z0-9])";
-
-        description = description.replaceFirst(
-                plainPairRegex,
-                " "
-        );
-
-        // --------------------------------------------------------
-        // Remove time values.
-        // --------------------------------------------------------
-
-        description = description.replaceAll(
-                "\\b\\d{1,2}:\\d{2}:\\d{2}\\b",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // Remove cheque number.
-        // --------------------------------------------------------
-
-        description = description.replaceAll(
-                "(?i)\\bChq:\\s*\\d+\\b",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // Remove common statement header text.
-        // --------------------------------------------------------
-
-        description = description.replaceAll(
-                "(?i)\\bDate\\s+Particulars\\s+Deposits\\s+"
-                + "Withdrawals\\s+Balance\\b",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // Remove page text.
-        // --------------------------------------------------------
-
-        description = description.replaceAll(
-                "(?i)\\bpage\\s+\\d+\\b",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // Remove remaining date/time variants.
-        // --------------------------------------------------------
-
-        description = description.replaceAll(
-                "\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b",
-                " "
-        );
-
-        description = description.replaceAll(
-                "\\b\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}\\b",
-                " "
-        );
-
-        description = description.replaceAll(
-                "\\b\\d{2}-[A-Za-z]{3}-\\d{4}\\b",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // Convert line breaks into spaces.
-        // --------------------------------------------------------
-
-        description = description.replace(
-                "\n",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // Remove repeated spaces.
-        // --------------------------------------------------------
-
-        description = description.replaceAll(
-                "\\s+",
-                " "
-        ).trim();
-
-        // --------------------------------------------------------
-        // Remove trailing UPI reference.
-        // --------------------------------------------------------
-
-        description = description.replaceAll(
-                "(?i)\\s+UPI[-/]\\d+$",
-                ""
-        ).trim();
-
-        /*
-         * If only statement column headings remain, return a
-         * generic description instead of storing the header.
-         */
-
-        if (description.equalsIgnoreCase("Date")
-                || description.equalsIgnoreCase("Particulars")
-                || description.equalsIgnoreCase(
-                        "Date Particulars")
-                || description.isEmpty()) {
-
-            description = "Bank Transaction";
+        if (Double.isFinite(delta) && Math.abs(delta) >= 0.005) {
+            amount = Math.abs(delta);
+            type = delta > 0 ? "INCOME" : "EXPENSE";
+        } else {
+            // Fallback for a statement where a previous/current balance is absent.
+            if (values.size() < 2) return null;
+            amount = values.get(values.size() - 2);
+            type = detectTypeFromKeywords(block);
+            if ("UNKNOWN".equals(type)) return null;
         }
 
-        return description;
+        if (upper.contains("INT.PD") || upper.contains("INTEREST CREDITED")) type = "INCOME";
+
+        String description = cleanDescription(block, rawDate);
+        if (description.isEmpty()) description = "Bank Transaction";
+
+        ExtractedTransaction tx = new ExtractedTransaction();
+        tx.setDate(date);
+        tx.setType(type);
+        tx.setDescription(description);
+        tx.setCategory(detectCategory(description, type));
+        tx.setAmount(round2(amount));
+        tx.setBalance(round2(currentBalance));
+
+        ParsedBankTransaction parsed = new ParsedBankTransaction();
+        parsed.transaction = tx;
+        parsed.balance = currentBalance;
+        return parsed;
     }
 
-    // ============================================================
-    // TRANSACTION TYPE
-    // ============================================================
-
-    private String detectTransactionType(
-            String block,
-            double previousBalance,
-            double amount,
-            double currentBalance) {
-
-        String text =
-                block.toUpperCase(Locale.ENGLISH);
-
-        // --------------------------------------------------------
-        // UPI DEBIT
-        // --------------------------------------------------------
-
-        if (text.contains("UPI/DR/")
-                || text.contains("UPI/DR ")
-                || text.contains("UPI-DR")
-                || text.contains("UPI / DR")) {
-
-            return "EXPENSE";
-        }
-
-        // --------------------------------------------------------
-        // UPI CREDIT
-        // --------------------------------------------------------
-
-        if (text.contains("UPI/CR/")
-                || text.contains("UPI/CR ")
-                || text.contains("UPI-CR")
-                || text.contains("UPI / CR")) {
-
-            return "INCOME";
-        }
-
-        // --------------------------------------------------------
-        // ATM
-        // --------------------------------------------------------
-
-        if (text.contains("ATM CASH")
-                || text.contains("ATM/")
-                || text.contains("CASH WITHDRAWAL")
-                || text.contains("ATM WITHDRAWAL")) {
-
-            return "EXPENSE";
-        }
-
-        // --------------------------------------------------------
-        // CASH DEPOSIT
-        // --------------------------------------------------------
-
-        if (text.contains("CASH-BNA")
-                || text.contains("CASH DEPOSIT")
-                || text.contains("CASH DEP")) {
-
-            return "INCOME";
-        }
-
-        // --------------------------------------------------------
-        // NEFT
-        // --------------------------------------------------------
-
-        if (text.contains("NEFT/CR")
-                || text.contains("NEFT CR")
-                || text.contains("NEFT / CR")) {
-
-            return "INCOME";
-        }
-
-        if (text.contains("NEFT/DR")
-                || text.contains("NEFT DR")
-                || text.contains("NEFT / DR")) {
-
-            return "EXPENSE";
-        }
-
-        // --------------------------------------------------------
-        // IMPS
-        // --------------------------------------------------------
-
-        if (text.contains("IMPS/CR")
-                || text.contains("IMPS CR")
-                || text.contains("IMPS / CR")) {
-
-            return "INCOME";
-        }
-
-        if (text.contains("IMPS/DR")
-                || text.contains("IMPS DR")
-                || text.contains("IMPS / DR")) {
-
-            return "EXPENSE";
-        }
-
-        // --------------------------------------------------------
-        // RTGS
-        // --------------------------------------------------------
-
-        if (text.contains("RTGS/CR")
-                || text.contains("RTGS CR")
-                || text.contains("RTGS / CR")) {
-
-            return "INCOME";
-        }
-
-        if (text.contains("RTGS/DR")
-                || text.contains("RTGS DR")
-                || text.contains("RTGS / DR")) {
-
-            return "EXPENSE";
-        }
-
-        // --------------------------------------------------------
-        // SALARY
-        // --------------------------------------------------------
-
-        if (text.contains("SALARY")
-                || text.contains("PAYROLL")) {
-
-            return "INCOME";
-        }
-
-        // --------------------------------------------------------
-        // REVERSAL
-        // --------------------------------------------------------
-
-        if (text.contains("REVERSAL")
-                || text.contains("UPI/REV")
-                || text.contains("REV/")) {
-
-            if (currentBalance > previousBalance) {
-                return "INCOME";
-            }
-
-            return "EXPENSE";
-        }
-
-        // --------------------------------------------------------
-        // BALANCE BASED FALLBACK
-        // --------------------------------------------------------
-
-        if (previousBalance > 0) {
-
-            // Expense:
-            // Previous - amount = Current
-
-            if (Math.abs(
-                    (previousBalance - amount)
-                            - currentBalance
-            ) < 0.05) {
-
-                return "EXPENSE";
-            }
-
-            // Income:
-            // Previous + amount = Current
-
-            if (Math.abs(
-                    (previousBalance + amount)
-                            - currentBalance
-            ) < 0.05) {
-
-                return "INCOME";
-            }
-        }
-
-        // --------------------------------------------------------
-        // GENERIC KEYWORD FALLBACK
-        // --------------------------------------------------------
-
-        if (text.contains("PAYMENT")
-                || text.contains("PURCHASE")
-                || text.contains("WITHDRAW")
-                || text.contains("DEBIT")) {
-
-            return "EXPENSE";
-        }
-
-        if (text.contains("DEPOSIT")
-                || text.contains("CREDIT")
-                || text.contains("RECEIVED")
-                || text.contains("TRANSFER FROM")) {
-
-            return "INCOME";
-        }
-
-        // Safe default.
-        return "EXPENSE";
+    private static class ParsedBankTransaction {
+        ExtractedTransaction transaction;
+        double balance;
     }
 
-    // ============================================================
-    // MONEY EXTRACTION
-    // ============================================================
+    private String normalizeDate(String raw) {
+        String date = raw.trim().replaceAll("\\s+", " ");
+        Matcher m = Pattern.compile("^(\\d{2})\\s+([A-Za-z]{3})\\s+(\\d{4})$").matcher(date);
+        if (m.matches()) return m.group(1) + " " + capitalize(m.group(2)) + " " + m.group(3);
+        return date;
+    }
 
-    /*
-     * Bank statement money usually appears as:
-     *
-     * 50.00
-     * 500.00
-     * 1,200.00
-     * 9,407.00
-     *
-     * We intentionally require a decimal part.
-     *
-     * This prevents random values such as:
-     *
-     * 1
-     * 24
-     * 52
-     * 141
-     * 286114435989
-     *
-     * from being treated as money.
+    private String capitalize(String s) {
+        return s.substring(0, 1).toUpperCase(Locale.ROOT) + s.substring(1).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Reads the opening balance from the actual statement text. Handles spaces,
+     * line breaks, and hyphen placeholders between the label and amount. It does
+     * not hard-code any account balance.
      */
+    private double extractOpeningBalance(String text) {
+        if (text == null || text.trim().isEmpty()) return Double.NaN;
 
-    private List<Double>
-    extractMoneyValues(String block) {
+        String normalized = text.replace('\u00A0', ' ').replace("\r", "");
+        String[] lines = normalized.split("\n");
 
-        List<Double> values =
-                new ArrayList<>();
+        // First preference: the exact row containing the Opening Balance label.
+        // Kotak statements commonly render this as: - - Opening Balance - - - 641.11
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.toLowerCase(Locale.ROOT).contains("opening balance")) {
+                List<Double> values = extractMoneyValues(line);
+                if (!values.isEmpty()) {
+                    double value = values.get(values.size() - 1);
+                    System.out.println("Detected statement opening balance: "
+                            + String.format(Locale.ROOT, "%.2f", value));
+                    return round2(value);
+                }
 
-        if (block == null
-                || block.trim().isEmpty()) {
-
-            return values;
-        }
-
-        String cleaned = block;
-
-        // --------------------------------------------------------
-        // STEP 1: Remove dates
-        // --------------------------------------------------------
-
-        cleaned = cleaned.replaceAll(
-                "\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b",
-                " "
-        );
-
-        cleaned = cleaned.replaceAll(
-                "\\b\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}\\b",
-                " "
-        );
-
-        cleaned = cleaned.replaceAll(
-                "\\b\\d{2}-[A-Za-z]{3}-\\d{4}\\b",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // STEP 2: Remove time values
-        // --------------------------------------------------------
-
-        cleaned = cleaned.replaceAll(
-                "\\b\\d{1,2}:\\d{2}:\\d{2}\\b",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // STEP 3: Remove cheque numbers
-        // --------------------------------------------------------
-
-        cleaned = cleaned.replaceAll(
-                "(?i)\\bChq:\\s*\\d+\\b",
-                " "
-        );
-
-        // --------------------------------------------------------
-        // STEP 4: Remove long numeric references
-        // --------------------------------------------------------
-
-        cleaned = cleaned.replaceAll(
-                "(?<![A-Za-z0-9])\\d{8,}(?![A-Za-z0-9])",
-                " "
-        );
-
-        /*
-         * --------------------------------------------------------
-         * STEP 5: Extract decimal money values.
-         *
-         * Supports:
-         *
-         * 50.00
-         * 500.00
-         * 1,200.00
-         * 9,407.00
-         * -500.00
-         *
-         * Also supports 1,23,456.00 style grouping.
-         * --------------------------------------------------------
-         */
-
-        Pattern decimalMoneyPattern =
-                Pattern.compile(
-                        "(?<![A-Za-z0-9])"
-                        + "-?"
-                        + "(?:"
-                        + "\\d{1,3}(?:,\\d{2,3})+"
-                        + "|"
-                        + "\\d+"
-                        + ")"
-                        + "\\.\\d{1,2}"
-                        + "(?![A-Za-z0-9])"
-                );
-
-        Matcher matcher =
-                decimalMoneyPattern.matcher(cleaned);
-
-        while (matcher.find()) {
-
-            String value = matcher.group();
-
-            try {
-
-                double number =
-                        Double.parseDouble(
-                                value.replace(",", "").trim()
-                        );
-
-                values.add(number);
-
-            } catch (Exception ignored) {
-                // Ignore invalid values.
+                // PDFBox may put the label and amount on adjacent lines.
+                StringBuilder nearby = new StringBuilder(line);
+                for (int j = i + 1; j < Math.min(lines.length, i + 4); j++) {
+                    nearby.append(' ').append(lines[j].trim());
+                    List<Double> nearbyValues = extractMoneyValues(nearby.toString());
+                    if (!nearbyValues.isEmpty()) {
+                        double value = nearbyValues.get(nearbyValues.size() - 1);
+                        System.out.println("Detected statement opening balance (wrapped row): "
+                                + String.format(Locale.ROOT, "%.2f", value));
+                        return round2(value);
+                    }
+                }
             }
         }
 
-        System.out.println(
-                "Money values found = " + values
-        );
+        // Fallback: label and amount may be separated by whitespace/column text.
+        Pattern fallback = Pattern.compile(
+                "(?is)Opening\\s+Balance\\b.{0,350}?"
+                + "(?<![A-Za-z0-9])([0-9]{1,3}(?:,[0-9]{3})*\\.[0-9]{2}|[0-9]+\\.[0-9]{2})(?![A-Za-z0-9])");
+        Matcher matcher = fallback.matcher(normalized);
+        if (matcher.find()) {
+            double value = parseAmount(matcher.group(1));
+            System.out.println("Detected statement opening balance (fallback): "
+                    + String.format(Locale.ROOT, "%.2f", value));
+            return round2(value);
+        }
 
+        System.err.println("Opening Balance label/amount was not found in extracted PDF text.");
+        return Double.NaN;
+    }
+
+    private List<Double> extractMoneyValues(String text) {
+        List<Double> values = new ArrayList<>();
+        String cleaned = removeDates(text)
+                .replaceAll("(?i)\\bUPI[-/]\\d+\\b", " ")
+                .replaceAll("(?<![A-Za-z0-9])\\d{8,}(?![A-Za-z0-9])", " ");
+        Matcher m = MONEY.matcher(cleaned);
+        while (m.find()) values.add(parseAmount(m.group()));
         return values;
     }
 
-    // ============================================================
-    // FORMAT MONEY FOR REGEX
-    // ============================================================
-
-    private String formatMoneyForRegex(double value) {
-
-        /*
-         * Use two decimal places because bank statements normally
-         * contain values such as 50.00 and 9,407.00.
-         */
-
-        return String.format(
-                Locale.ENGLISH,
-                "%.2f",
-                value
-        );
+    private String cleanDescription(String block, String rawDate) {
+        String description = block.replaceFirst(
+                "^\\s*(?:\\d{1,4}\\s+)?" + Pattern.quote(rawDate) + "\\s*", "");
+        description = description.replaceAll(
+                "(?<![A-Za-z0-9])-?(?:\\d{1,3}(?:,\\d{2,3})+|\\d+)\\.\\d{1,2}(?![A-Za-z0-9])", " ");
+        description = removeDates(description);
+        description = description.replaceAll("(?i)\\bUPI[-/]\\d{6,}\\b", " ");
+        description = description.replaceAll("(?<![A-Za-z0-9])\\d{8,}(?![A-Za-z0-9])", " ");
+        description = description.replaceAll(
+                "(?i)\\b(Withdrawal \\(Dr\\.\\)|Deposit \\(Cr\\.\\)|Balance|Description|Chq/Ref\\. No\\.)\\b", " ");
+        description = description.replaceAll("(?i)\\bNO\\s+REMARK\\b", " ");
+        description = description.replaceAll("(?i)\\b(Statement Generated on|Account Statement|Savings Account Transactions|Page)\\b.*$", " ");
+        return description.replaceAll("\\s+", " ")
+                .replaceAll("^[\\s/|,-]+|[\\s/|,-]+$", "").trim();
     }
 
-    // ============================================================
-    // EXTRACT LAST BALANCE
-    // ============================================================
-
-    private double extractLastBalance(
-            String block) {
-
-        List<Double> values =
-                extractMoneyValues(block);
-
-        if (values.size() < 1) {
-            return Double.NaN;
-        }
-
-        return values.get(
-                values.size() - 1
-        );
+    private String removeDates(String text) {
+        return text.replaceAll("\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b", " ")
+                   .replaceAll("\\b\\d{2}\\s+[A-Za-z]{3}\\s+\\d{4}\\b", " ")
+                   .replaceAll("\\b\\d{2}-[A-Za-z]{3}-\\d{4}\\b", " ");
     }
 
-    // ============================================================
-    // OPENING BALANCE
-    // ============================================================
-
-    private double extractOpeningBalance(
-            String text) {
-
-        // Opening Balance 9,457.00
-
-        Pattern pattern = Pattern.compile(
-                "(?i)"
-                + "Opening\\s+Balance"
-                + "\\s*[:=-]?\\s*"
-                + "([0-9,]+(?:\\.\\d{1,2})?)"
-        );
-
-        Matcher matcher = pattern.matcher(text);
-
-        if (matcher.find()) {
-
-            return parseAmount(
-                    matcher.group(1)
-            );
-        }
-
-        // Other possible format:
-        // Opening Bal : 9,457.00
-
-        pattern = Pattern.compile(
-                "(?i)"
-                + "Opening\\s+Bal"
-                + "\\s*[:=-]?\\s*"
-                + "([0-9,]+(?:\\.\\d{1,2})?)"
-        );
-
-        matcher = pattern.matcher(text);
-
-        if (matcher.find()) {
-
-            return parseAmount(
-                    matcher.group(1)
-            );
-        }
-
-        return 0;
+    private String detectTypeFromKeywords(String block) {
+        String t = block.toUpperCase(Locale.ROOT);
+        if (t.contains("INT.PD") || t.contains("INTEREST CREDITED") || t.contains("NEFTINW")
+                || t.contains("PAYMENT FROM") || t.contains("DEPOSIT")) return "INCOME";
+        if (t.contains("WITHDRAWAL") || t.contains("CHRG:") || t.contains("FEE FOR THE MONTH")) return "EXPENSE";
+        return "UNKNOWN";
     }
 
-    // ============================================================
-    // CATEGORY DETECTION
-    // ============================================================
-
-    private String detectCategory(
-            String description) {
-
-        String text =
-                description.toLowerCase(Locale.ENGLISH);
-
-        // FOOD
-
-        if (containsAny(
-                text,
-                "food",
-                "restaurant",
-                "hotel",
-                "cafe",
-                "coffee",
-                "pizza",
-                "burger",
-                "biryani",
-                "swiggy",
-                "zomato",
-                "dominos",
-                "mcdonald",
-                "kfc",
-                "roll",
-                "dhaba",
-                "mess",
-                "canteen",
-                "bakery"
-        )) {
-
-            return "Food";
-        }
-
-        // TRANSPORT
-
-        if (containsAny(
-                text,
-                "petrol",
-                "fuel",
-                "hpcl",
-                "bpcl",
-                "indian oil",
-                "iocl",
-                "uber",
-                "ola",
-                "rapido",
-                "metro",
-                "bus",
-                "irctc",
-                "railway",
-                "transport",
-                "parking",
-                "toll",
-                "fastag"
-        )) {
-
-            return "Transport";
-        }
-
-        // MEDICAL
-
-        if (containsAny(
-                text,
-                "medical",
-                "hospital",
-                "pharmacy",
-                "chemist",
-                "apollo",
-                "medplus",
-                "doctor",
-                "clinic",
-                "diagnostic",
-                "medicine"
-        )) {
-
-            return "Medical";
-        }
-
-        // SHOPPING
-
-        if (containsAny(
-                text,
-                "shopping",
-                "mart",
-                "store",
-                "mall",
-                "amazon",
-                "flipkart",
-                "myntra",
-                "reliance",
-                "dmart",
-                "big bazaar",
-                "supermarket"
-        )) {
-
-            return "Shopping";
-        }
-
-        // BILLS / RECHARGE
-
-        if (containsAny(
-                text,
-                "recharge",
-                "jio",
-                "airtel",
-                " vi ",
-                "vodafone",
-                "bsnl",
-                "electricity",
-                "light bill",
-                "water bill",
-                "gas bill",
-                "mobile bill",
-                "broadband",
-                "internet"
-        )) {
-
-            return "Bills & Recharge";
-        }
-
-        // EDUCATION
-
-        if (containsAny(
-                text,
-                "college",
-                "university",
-                "school",
-                "education",
-                "course",
-                "udemy",
-                "coursera",
-                "exam",
-                "fees",
-                "fee"
-        )) {
-
-            return "Education";
-        }
-
-        // ENTERTAINMENT
-
-        if (containsAny(
-                text,
-                "movie",
-                "cinema",
-                "bookmyshow",
-                "netflix",
-                "spotify",
-                "youtube",
-                "prime video",
-                "game",
-                "gaming"
-        )) {
-
-            return "Entertainment";
-        }
-
-        // BANK TRANSFER
-
-        if (containsAny(
-                text,
-                "neft",
-                "imps",
-                "rtgs",
-                "bank transfer"
-        )) {
-
-            return "Bank Transfer";
-        }
-
-        // ATM
-
-        if (containsAny(
-                text,
-                "atm cash",
-                "atm withdrawal",
-                "cash withdrawal"
-        )) {
-
-            return "Cash Withdrawal";
-        }
-
-        // SALARY
-
-        if (containsAny(
-                text,
-                "salary",
-                "payroll"
-        )) {
-
-            return "Salary";
-        }
-
-        // CASH DEPOSIT
-
-        if (containsAny(
-                text,
-                "cash deposit",
-                "cash-bna",
-                "cash dep"
-        )) {
-
-            return "Cash Deposit";
-        }
-
-        // UPI
-
-        if (text.contains("upi")) {
-            return "UPI";
-        }
-
-        return "Other";
+    private String detectCategory(String description, String type) {
+        String t = description.toLowerCase(Locale.ROOT);
+        if (containsAny(t, "int.pd", "interest credited", "interest")) return "Interest Income";
+        if (containsAny(t, "cafe", "misal", "bhel", "restaurant", "food", "pizza", "burger", "biryani", "swiggy", "zomato", "hotel", "bakery", "mess", "tea stall")) return "Food";
+        if (containsAny(t, "medical", "hospital", "pharmacy", "chemist", "doctor", "clinic", "medicine", "diagnostic")) return "Medical";
+        if (containsAny(t, "makemytrip", "redbus", "irctc", "uber", "ola", "rapido", "petrol", "fuel", "metro", "railway", "transport", "parking", "fastag", "pmpml")) return "Transport";
+        if (containsAny(t, "amazon", "flipkart", "myntra", "dmart", "supermarket", "shopping", "mall", "store")) return "Shopping";
+        if (containsAny(t, "recharge", "airtel", "jio", "vodafone", "electricity", "light bill", "water bill", "gas bill", "broadband", "internet", "sms alert fee", "chrg:")) return "Bills & Charges";
+        if (containsAny(t, "college", "university", "school", "education", "course", "udemy", "coursera", "exam", "fees", "fee")) return "Education";
+        if (containsAny(t, "salary", "payroll")) return "Salary";
+        if (containsAny(t, "atm", "cash withdrawal")) return "Cash Withdrawal";
+        if (containsAny(t, "neft", "imps", "rtgs", "bank transfer")) return "Bank Transfer";
+        if (containsAny(t, "rent")) return "Rent";
+        return "INCOME".equals(type) ? "Other Income" : "Uncategorized";
     }
 
-    // ============================================================
-    // CHECK MULTIPLE KEYWORDS
-    // ============================================================
-
-    private boolean containsAny(
-            String text,
-            String... keywords) {
-
+    private boolean containsAny(String text, String... keywords) {
         for (String keyword : keywords) {
-
-            if (text.contains(
-                    keyword.toLowerCase(Locale.ENGLISH)
-            )) {
-
-                return true;
-            }
+            if (text.contains(keyword.toLowerCase(Locale.ROOT))) return true;
         }
-
         return false;
     }
 
-    // ============================================================
-    // PARSE AMOUNT
-    // ============================================================
+    private boolean isTableHeader(String line) {
+        String t = line.toLowerCase(Locale.ROOT);
+        return t.matches("#\\s+date\\s+description.*")
+                || (t.contains("withdrawal (dr.)") && t.contains("deposit (cr.)"))
+                || t.equals("-") || t.equals("- -");
+    }
 
-    private double parseAmount(
-            String text) {
+    private boolean isBoilerplateLine(String line) {
+        String t = line.toLowerCase(Locale.ROOT).trim();
+        return t.isEmpty()
+                || t.contains("statement generated on")
+                || t.contains("account statement")
+                || t.contains("savings account transactions")
+                || t.matches("page\\s+\\d+")
+                || t.contains("withdrawal (dr.)")
+                || t.contains("deposit (cr.)")
+                || t.contains("chq/ref.");
+    }
 
-        if (text == null
-                || text.trim().isEmpty()) {
-
-            return 0;
-        }
-
+    private double parseAmount(String value) {
+        if (value == null || value.trim().isEmpty()) return 0.0;
         try {
-
-            return Double.parseDouble(
-                    text.replace(",", "").trim()
-            );
-
-        } catch (Exception e) {
-
-            return 0;
+            return new BigDecimal(value.replace(",", "").trim())
+                    .setScale(2, RoundingMode.HALF_UP).doubleValue();
+        } catch (NumberFormatException ex) {
+            return 0.0;
         }
     }
 
-    // ============================================================
-    // BANK HEADER DETECTION
-    // ============================================================
-
-    private boolean isBankHeader(
-            String block) {
-
-        String lower =
-                block.toLowerCase(Locale.ENGLISH);
-
-        if (lower.contains("statement for a/c")) {
-            return true;
-        }
-
-        if (lower.contains("customer id")) {
-            return true;
-        }
-
-        if (lower.contains("branch code")) {
-            return true;
-        }
-
-        if (lower.contains("ifsc code")) {
-            return true;
-        }
-
-        /*
-         * Prevent the column header from becoming a transaction
-         * if it appears as a block.
-         */
-
-        if (lower.contains("date particulars deposits")
-                && lower.contains("withdrawals balance")) {
-
-            return true;
-        }
-
-        return false;
+    private double round2(double value) {
+        return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP).doubleValue();
     }
 }
