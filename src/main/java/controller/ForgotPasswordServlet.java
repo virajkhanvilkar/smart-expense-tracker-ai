@@ -521,10 +521,9 @@ public class ForgotPasswordServlet extends HttpServlet {
 
         } catch (Exception e) {
 
-            System.out.println(
-                    "ERROR WHILE SENDING OTP:"
-            );
-
+            System.err.println("ERROR WHILE SENDING OTP:");
+            System.err.println("Exception type: " + e.getClass().getName());
+            System.err.println("Error message: " + e.getMessage());
             e.printStackTrace();
 
             return false;
