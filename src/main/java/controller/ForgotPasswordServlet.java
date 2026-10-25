@@ -392,8 +392,8 @@ public class ForgotPasswordServlet extends HttpServlet {
             // SENDER GMAIL
             // =================================================
 
-            final String senderEmail =
-                    "smartexpensetracker22@gmail.com";
+            final String senderEmail = System.getenv("GMAIL_EMAIL");
+//                    "smartexpensetracker22@gmail.com";
 
 
             // =================================================
@@ -404,8 +404,8 @@ public class ForgotPasswordServlet extends HttpServlet {
             // Generate a Google App Password and put it here.
             // =================================================
 
-            final String appPassword =
-                    "nfcw rehf ivdo tyzy";
+            final String appPassword =System.getenv("GMAIL_APP_PASSWORD");
+//                    "nfcw rehf ivdo tyzy";
 
 
             // =================================================
