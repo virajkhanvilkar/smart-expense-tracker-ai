@@ -1,210 +1,190 @@
 
-<%@ page language="java" contentType="text/html; charset=UTF-8"
-    pageEncoding="UTF-8"%>
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Forgot Password - Smart Expense Tracker</title>
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
+<%
+    Boolean otpSent = (Boolean) request.getAttribute("otpSent");
+    Boolean verified = (Boolean) request.getAttribute("verified");
+    String error = (String) request.getAttribute("error");
+    String emailValue = request.getParameter("email");
 
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: Arial, Helvetica, sans-serif;
-        }
+    if (emailValue == null) {
+        emailValue = "";
+    }
 
-        body {
-            background: #f2f2f2;
-        }
+    String safeEmail = emailValue
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&#39;");
 
-        .container {
-            width: 450px;
-            max-width: calc(100% - 30px);
-            margin: 60px auto;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px #ccc;
-        }
-
-        h2 {
-            text-align: center;
-            margin-bottom: 15px;
-            color: #2196F3;
-        }
-
-        .description {
-            text-align: center;
-            color: #666;
-            margin-bottom: 22px;
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: bold;
-        }
-
-        input {
-            width: 100%;
-            padding: 12px;
-            margin-bottom: 18px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-
-        button {
-            width: 100%;
-            padding: 12px;
-            background: #2196F3;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-
-        button:hover {
-            background: #1976D2;
-        }
-
-        .message {
-            text-align: center;
-            margin-bottom: 20px;
-            color: green;
-            font-weight: bold;
-        }
-
-        .error {
-            text-align: center;
-            margin-bottom: 20px;
-            color: #c62828;
-            font-weight: bold;
-            overflow-wrap: anywhere;
-        }
-
-        .back-login {
-            text-align: center;
-            margin-top: 20px;
-        }
-
-        a {
-            text-decoration: none;
-            color: #2196F3;
-            font-weight: bold;
-        }
-    </style>
-</head>
-
-<body>
-<div class="container">
-
-    <h2>Reset Password</h2>
-
-    <p class="description">
-        Enter your registered email address to reset your password.
-    </p>
-
-    <% if (request.getAttribute("error") != null) {
-        String errorMessage =
-            String.valueOf(request.getAttribute("error"));
-        errorMessage = errorMessage
+    String safeError = "";
+    if (error != null) {
+        safeError = error
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
             .replace("'", "&#39;");
-    %>
-        <div class="error"><%= errorMessage %></div>
+    }
+%>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forgot Password - Smart Expense Tracker</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #f2f2f2;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 430px;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px #0003;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2196f3;
+            font-size: 25px;
+        }
+
+        p {
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        label {
+            display: block;
+            margin: 18px 0 8px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 15px;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 20px;
+            padding: 13px;
+            background: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover { background: #147dcc; }
+
+        .message {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 15px 0;
+            overflow-wrap: anywhere;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #b71c1c;
+        }
+
+        .success {
+            background: #e8f5e9;
+            color: #1b5e20;
+        }
+
+        .back {
+            text-align: center;
+            margin-top: 22px;
+        }
+
+        a {
+            color: #1689e8;
+            text-decoration: none;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+<main class="card">
+    <h1>Reset Your Password</h1>
+
+    <% if (!safeError.isEmpty()) { %>
+        <div class="message error"><%= safeError %></div>
     <% } %>
 
-    <%-- STEP 1: Enter email and request OTP --%>
-    <% if (Boolean.TRUE.equals(request.getAttribute("verified"))) { %>
+    <% if (Boolean.TRUE.equals(verified)) { %>
 
-        <div class="message">
-            OTP verified successfully. Enter your new password.
-        </div>
+        <p>OTP verified. Enter your new password.</p>
 
         <form action="ForgotPasswordServlet" method="post">
             <input type="hidden" name="action" value="resetPassword">
 
-            <label for="password">New Password</label>
-            <input
-                type="password"
-                id="password"
-                name="password"
-                placeholder="Enter new password"
-                autocomplete="new-password"
-                required>
+            <label for="newPassword">New Password</label>
+            <input type="password" id="newPassword" name="newPassword"
+                   minlength="8" autocomplete="new-password" required>
 
             <label for="confirmPassword">Confirm Password</label>
-            <input
-                type="password"
-                id="confirmPassword"
-                name="confirmPassword"
-                placeholder="Confirm new password"
-                autocomplete="new-password"
-                required>
+            <input type="password" id="confirmPassword"
+                   name="confirmPassword" minlength="8"
+                   autocomplete="new-password" required>
 
             <button type="submit">Reset Password</button>
         </form>
 
-    <%-- STEP 2: OTP has been accepted for sending; show verification --%>
-    <% } else if (Boolean.TRUE.equals(request.getAttribute("otpSent"))) { %>
+    <% } else if (Boolean.TRUE.equals(otpSent)) { %>
 
-        <div class="message">
-            OTP request accepted. Check your email and spam folder.
-        </div>
+        <p>Enter the OTP sent to your registered email address.</p>
 
         <form action="ForgotPasswordServlet" method="post">
             <input type="hidden" name="action" value="verifyOtp">
 
-            <label for="otp">Enter 6-digit OTP</label>
-            <input
-                type="text"
-                id="otp"
-                name="otp"
-                placeholder="Enter 6-digit OTP"
-                inputmode="numeric"
-                pattern="[0-9]{6}"
-                minlength="6"
-                maxlength="6"
-                autocomplete="one-time-code"
-                required>
+            <label for="otp">6-digit OTP</label>
+            <input type="text" id="otp" name="otp"
+                   inputmode="numeric" pattern="[0-9]{6}"
+                   maxlength="6" autocomplete="one-time-code" required>
 
             <button type="submit">Verify OTP</button>
         </form>
 
-    <%-- STEP 3: Email form, including when sending fails --%>
     <% } else { %>
+
+        <p>Enter your registered email address to request a password-reset OTP.</p>
 
         <form action="ForgotPasswordServlet" method="get">
             <input type="hidden" name="action" value="sendOtp">
 
             <label for="email">Registered Email</label>
-            <input
-                type="email"
-                id="email"
-                name="email"
-                placeholder="Enter your registered email"
-                autocomplete="email"
-                required>
+            <input type="email" id="email" name="email"
+                   value="<%= safeEmail %>"
+                   autocomplete="email" required>
 
             <button type="submit">Send OTP</button>
         </form>
 
     <% } %>
 
-    <div class="back-login">
+    <div class="back">
         <a href="login.jsp">Back to Login</a>
     </div>
-
-</div>
+</main>
 </body>
 </html>
