@@ -32,7 +32,6 @@ public class ForgotPasswordServlet extends HttpServlet {
 
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
-
     @Override
     protected void doGet(HttpServletRequest request,
                          HttpServletResponse response)
