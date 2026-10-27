@@ -2,14 +2,6 @@ package controller;
 
 import dao.UserDAO;
 
-import jakarta.mail.Authenticator;
-import jakarta.mail.Message;
-import jakarta.mail.PasswordAuthentication;
-import jakarta.mail.Session;
-import jakarta.mail.Transport;
-import jakarta.mail.internet.InternetAddress;
-import jakarta.mail.internet.MimeMessage;
-
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -18,19 +10,30 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
-import java.util.Properties;
-import java.util.Random;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.util.regex.Pattern;
 
 @WebServlet("/ForgotPasswordServlet")
 public class ForgotPasswordServlet extends HttpServlet {
 
-    // =====================================================
-    // GET
-    // =====================================================
+    private static final long OTP_VALIDITY_MILLIS = 5 * 60 * 1000L;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(15))
+            .build();
+
+    private static final Pattern EMAIL_PATTERN =
+            Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     @Override
     protected void doGet(HttpServletRequest request,
-                          HttpServletResponse response)
+                         HttpServletResponse response)
             throws ServletException, IOException {
 
         String action = request.getParameter("action");
@@ -42,14 +45,9 @@ public class ForgotPasswordServlet extends HttpServlet {
         }
     }
 
-
-    // =====================================================
-    // POST
-    // =====================================================
-
     @Override
     protected void doPost(HttpServletRequest request,
-                           HttpServletResponse response)
+                          HttpServletResponse response)
             throws ServletException, IOException {
 
         String action = request.getParameter("action");
@@ -67,26 +65,17 @@ public class ForgotPasswordServlet extends HttpServlet {
         response.sendRedirect("login.jsp");
     }
 
-
-    // =====================================================
-    // STEP 1 : SEND OTP
-    // =====================================================
-
+    // STEP 1: Generate and send OTP.
     private void sendOtp(HttpServletRequest request,
                          HttpServletResponse response)
             throws ServletException, IOException {
 
         String email = request.getParameter("email");
 
-        if (email == null || email.trim().isEmpty()) {
-
-            response.getWriter().println(
-                "<script>" +
-                "alert('Please enter your registered email.');" +
-                "location='login.jsp';" +
-                "</script>"
-            );
-
+        if (email == null || email.trim().isEmpty()
+                || !EMAIL_PATTERN.matcher(email.trim()).matches()) {
+            showAlert(response, "Please enter a valid registered email.",
+                    "forgotPassword.jsp");
             return;
         }
 
@@ -94,439 +83,258 @@ public class ForgotPasswordServlet extends HttpServlet {
 
         UserDAO dao = new UserDAO();
 
-        // Check registered email
         if (!dao.emailExists(email)) {
-
-            response.getWriter().println(
-                "<script>" +
-                "alert('This email is not registered.');" +
-                "location='login.jsp';" +
-                "</script>"
-            );
-
+            showAlert(response, "This email is not registered.",
+                    "forgotPassword.jsp");
             return;
         }
 
-        // Generate 6 digit OTP
-        Random random = new Random();
+        // Generate a cryptographically secure six-digit OTP.
+        String otp = String.valueOf(100000 + SECURE_RANDOM.nextInt(900000));
 
-        String otp = String.valueOf(
-                100000 + random.nextInt(900000)
-        );
-
-        // Create session
-        HttpSession session = request.getSession();
-
-        session.setAttribute("resetEmail", email);
-
-        session.setAttribute("resetOtp", otp);
-
-        // OTP valid for 5 minutes
-        session.setAttribute(
-                "otpExpiry",
-                System.currentTimeMillis() + (5 * 60 * 1000)
-        );
-
-        // Send OTP
         boolean sent = sendOTPEmail(email, otp);
 
         if (sent) {
+            HttpSession session = request.getSession();
+            session.setAttribute("resetEmail", email);
+            session.setAttribute("resetOtp", otp);
+            session.setAttribute("otpExpiry",
+                    System.currentTimeMillis() + OTP_VALIDITY_MILLIS);
+            session.removeAttribute("otpVerified");
+            session.removeAttribute("otpAttempts");
 
-            request.setAttribute(
-                    "otpSent",
-                    true
-            );
-
-            request.getRequestDispatcher(
-                    "forgotPassword.jsp"
-            ).forward(request, response);
-
+            request.setAttribute("otpSent", true);
+            request.getRequestDispatcher("forgotPassword.jsp")
+                    .forward(request, response);
         } else {
+            // Do not keep a usable OTP in the session if email delivery failed.
+            HttpSession session = request.getSession(false);
+            if (session != null) {
+                session.removeAttribute("resetOtp");
+                session.removeAttribute("otpExpiry");
+                session.removeAttribute("otpVerified");
+            }
 
-            response.getWriter().println(
-                "<script>" +
-                "alert('Unable to send OTP. Please check email configuration.');" +
-                "location='forgotPassword.jsp';" +
-                "</script>"
-            );
+            showAlert(response,
+                    "Unable to send OTP. Please check the email configuration and try again.",
+                    "forgotPassword.jsp");
         }
     }
 
-
-    // =====================================================
-    // STEP 2 : VERIFY OTP
-    // =====================================================
-
+    // STEP 2: Verify the OTP.
     private void verifyOtp(HttpServletRequest request,
                            HttpServletResponse response)
             throws ServletException, IOException {
 
-        String enteredOtp =
-                request.getParameter("otp");
+        HttpSession session = request.getSession(false);
+        if (session == null) {
+            request.setAttribute("error",
+                    "OTP session expired. Please request a new OTP.");
+            request.getRequestDispatcher("forgotPassword.jsp")
+                    .forward(request, response);
+            return;
+        }
 
-        HttpSession session =
-                request.getSession();
-
-        String savedOtp =
-                (String) session.getAttribute("resetOtp");
-
-        Long expiry =
-                (Long) session.getAttribute("otpExpiry");
-
+        String enteredOtp = request.getParameter("otp");
+        String savedOtp = (String) session.getAttribute("resetOtp");
+        Long expiry = (Long) session.getAttribute("otpExpiry");
 
         if (savedOtp == null || expiry == null) {
-
-            request.setAttribute(
-                    "error",
-                    "OTP expired. Please request a new OTP."
-            );
-
-            request.getRequestDispatcher(
-                    "forgotPassword.jsp"
-            ).forward(request, response);
-
+            request.setAttribute("error",
+                    "OTP expired. Please request a new OTP.");
+            request.getRequestDispatcher("forgotPassword.jsp")
+                    .forward(request, response);
             return;
         }
-
-
-        // Check expiry
 
         if (System.currentTimeMillis() > expiry) {
-
-            session.removeAttribute("resetOtp");
-            session.removeAttribute("otpExpiry");
-
-            request.setAttribute(
-                    "error",
-                    "OTP has expired. Please request a new OTP."
-            );
-
-            request.getRequestDispatcher(
-                    "forgotPassword.jsp"
-            ).forward(request, response);
-
+            clearOtpState(session);
+            request.setAttribute("error",
+                    "OTP has expired. Please request a new OTP.");
+            request.getRequestDispatcher("forgotPassword.jsp")
+                    .forward(request, response);
             return;
         }
 
-
-        // Verify OTP
-
-        if (savedOtp.equals(enteredOtp)) {
-
-            session.setAttribute(
-                    "otpVerified",
-                    true
-            );
-
-            request.setAttribute(
-                    "verified",
-                    true
-            );
-
-        } else {
-
-            request.setAttribute(
-                    "otpSent",
-                    true
-            );
-
-            request.setAttribute(
-                    "error",
-                    "Invalid OTP. Please try again."
-            );
+        Integer attempts = (Integer) session.getAttribute("otpAttempts");
+        if (attempts == null) {
+            attempts = 0;
         }
 
+        if (attempts >= 5) {
+            clearOtpState(session);
+            request.setAttribute("error",
+                    "Too many incorrect attempts. Please request a new OTP.");
+            request.getRequestDispatcher("forgotPassword.jsp")
+                    .forward(request, response);
+            return;
+        }
 
-        request.getRequestDispatcher(
-                "forgotPassword.jsp"
-        ).forward(request, response);
+        if (enteredOtp != null && savedOtp.equals(enteredOtp.trim())) {
+            session.setAttribute("otpVerified", true);
+            session.removeAttribute("resetOtp");
+            session.removeAttribute("otpAttempts");
+
+            request.setAttribute("verified", true);
+        } else {
+            session.setAttribute("otpAttempts", attempts + 1);
+            request.setAttribute("otpSent", true);
+            request.setAttribute("error", "Invalid OTP. Please try again.");
+        }
+
+        request.getRequestDispatcher("forgotPassword.jsp")
+                .forward(request, response);
     }
 
-
-    // =====================================================
-    // STEP 3 : RESET PASSWORD
-    // =====================================================
-
+    // STEP 3: Reset the password after successful OTP verification.
     private void resetPassword(HttpServletRequest request,
                                HttpServletResponse response)
             throws ServletException, IOException {
 
-        HttpSession session =
-                request.getSession();
-
-        Boolean verified =
-                (Boolean) session.getAttribute(
-                        "otpVerified"
-                );
-
-
-        if (verified == null || !verified) {
-
+        HttpSession session = request.getSession(false);
+        if (session == null
+                || !Boolean.TRUE.equals(session.getAttribute("otpVerified"))) {
             response.sendRedirect("login.jsp");
-
             return;
         }
 
+        String password = request.getParameter("password");
+        String confirmPassword = request.getParameter("confirmPassword");
 
-        String password =
-                request.getParameter("password");
-
-        String confirmPassword =
-                request.getParameter("confirmPassword");
-
-
-        // Check password
-
-        if (password == null ||
-            confirmPassword == null ||
-            password.trim().isEmpty() ||
-            confirmPassword.trim().isEmpty()) {
-
-            request.setAttribute(
-                    "verified",
-                    true
-            );
-
-            request.setAttribute(
-                    "error",
-                    "Please enter both passwords."
-            );
-
-            request.getRequestDispatcher(
-                    "forgotPassword.jsp"
-            ).forward(request, response);
-
+        if (password == null || confirmPassword == null
+                || password.trim().isEmpty()
+                || confirmPassword.trim().isEmpty()) {
+            request.setAttribute("verified", true);
+            request.setAttribute("error", "Please enter both passwords.");
+            request.getRequestDispatcher("forgotPassword.jsp")
+                    .forward(request, response);
             return;
         }
-
-
-        // Confirm password
 
         if (!password.equals(confirmPassword)) {
-
-            request.setAttribute(
-                    "verified",
-                    true
-            );
-
-            request.setAttribute(
-                    "error",
-                    "Passwords do not match."
-            );
-
-            request.getRequestDispatcher(
-                    "forgotPassword.jsp"
-            ).forward(request, response);
-
+            request.setAttribute("verified", true);
+            request.setAttribute("error", "Passwords do not match.");
+            request.getRequestDispatcher("forgotPassword.jsp")
+                    .forward(request, response);
             return;
         }
 
-
-        // Get registered email
-
-        String email =
-                (String) session.getAttribute(
-                        "resetEmail"
-                );
-
-
+        String email = (String) session.getAttribute("resetEmail");
         if (email == null) {
-
             response.sendRedirect("login.jsp");
-
             return;
         }
-
-
-        // Update password
 
         UserDAO dao = new UserDAO();
-
-        boolean updated =
-                dao.updatePassword(
-                        email,
-                        password
-                );
-
+        boolean updated = dao.updatePassword(email, password);
 
         if (updated) {
-
             session.invalidate();
-
-            response.getWriter().println(
-                "<script>" +
-                "alert('Password reset successfully!');" +
-                "location='login.jsp';" +
-                "</script>"
-            );
-
+            showAlert(response, "Password reset successfully!", "login.jsp");
         } else {
-
-            request.setAttribute(
-                    "verified",
-                    true
-            );
-
-            request.setAttribute(
-                    "error",
-                    "Failed to update password."
-            );
-
-            request.getRequestDispatcher(
-                    "forgotPassword.jsp"
-            ).forward(request, response);
+            request.setAttribute("verified", true);
+            request.setAttribute("error", "Failed to update password.");
+            request.getRequestDispatcher("forgotPassword.jsp")
+                    .forward(request, response);
         }
     }
 
+    // Send OTP through Resend's HTTPS API (not SMTP).
+    private boolean sendOTPEmail(String recipientEmail, String otp) {
+        String apiKey = System.getenv("RESEND_API_KEY");
+        String fromEmail = System.getenv("RESEND_FROM_EMAIL");
 
-    // =====================================================
-    // SEND EMAIL
-    // =====================================================
-
-    private boolean sendOTPEmail(String recipientEmail,
-                                 String otp) {
-
-        try {
-
-            // =================================================
-            // SENDER GMAIL
-            // =================================================
-
-            final String senderEmail = System.getenv("GMAIL_EMAIL");
-//                    "smartexpensetracker22@gmail.com";
-
-
-            // =================================================
-            // GOOGLE APP PASSWORD
-            // =================================================
-            // DO NOT PUT Smart@2003 HERE.
-            //
-            // Generate a Google App Password and put it here.
-            // =================================================
-
-            final String appPassword =System.getenv("GMAIL_APP_PASSWORD");
-//                    "nfcw rehf ivdo tyzy";
-
-
-            // =================================================
-            // SMTP SETTINGS
-            // =================================================
-
-            Properties properties =
-                    new Properties();
-
-            properties.put(
-                    "mail.smtp.host",
-                    "smtp.gmail.com"
-            );
-
-            properties.put(
-                    "mail.smtp.port",
-                    "587"
-            );
-
-            properties.put(
-                    "mail.smtp.auth",
-                    "true"
-            );
-
-            properties.put(
-                    "mail.smtp.starttls.enable",
-                    "true"
-            );
-
-
-            // =================================================
-            // MAIL SESSION
-            // =================================================
-
-            Session session =
-                    Session.getInstance(
-                            properties,
-                            new Authenticator() {
-
-                                @Override
-                                protected PasswordAuthentication
-                                getPasswordAuthentication() {
-
-                                    return new PasswordAuthentication(
-                                            senderEmail,
-                                            appPassword
-                                    );
-                                }
-                            }
-                    );
-
-
-            // =================================================
-            // EMAIL
-            // =================================================
-
-            Message message =
-                    new MimeMessage(session);
-
-            message.setFrom(
-                    new InternetAddress(
-                            senderEmail
-                    )
-            );
-
-
-            // Send to registered email
-
-            message.setRecipients(
-                    Message.RecipientType.TO,
-                    InternetAddress.parse(
-                            recipientEmail
-                    )
-            );
-
-
-            message.setSubject(
-                    "Smart Expense Tracker - Password Reset OTP"
-            );
-
-
-            message.setText(
-                    "Hello,\n\n" +
-
-                    "Your Smart Expense Tracker " +
-                    "password reset OTP is:\n\n" +
-
-                    otp + "\n\n" +
-
-                    "This OTP is valid for 5 minutes.\n\n" +
-
-                    "If you did not request a password reset, " +
-                    "please ignore this email.\n\n" +
-
-                    "Regards,\n" +
-                    "Smart Expense Tracker"
-            );
-
-
-            // =================================================
-            // SEND
-            // =================================================
-
-            Transport.send(message);
-
-            System.out.println(
-                    "OTP successfully sent to: "
-                    + recipientEmail
-            );
-
-            return true;
-
-
-        } catch (Exception e) {
-
-            System.err.println("ERROR WHILE SENDING OTP:");
-            System.err.println("Exception type: " + e.getClass().getName());
-            System.err.println("Error message: " + e.getMessage());
-            e.printStackTrace();
-
+        if (apiKey == null || apiKey.isBlank()) {
+            System.err.println("RESEND_API_KEY is not configured.");
             return false;
         }
+
+        if (fromEmail == null || fromEmail.isBlank()) {
+            System.err.println("RESEND_FROM_EMAIL is not configured.");
+            return false;
+        }
+
+        try {
+            String subject =
+                    "Smart Expense Tracker - Password Reset OTP";
+            String body =
+                    "Hello,\n\n"
+                    + "Your Smart Expense Tracker password reset OTP is:\n\n"
+                    + otp + "\n\n"
+                    + "This OTP is valid for 5 minutes.\n\n"
+                    + "If you did not request a password reset, please ignore this email.\n\n"
+                    + "Regards,\nSmart Expense Tracker";
+
+            String json = "{"
+                    + "\"from\":\"" + escapeJson(fromEmail) + "\","
+                    + "\"to\":[\"" + escapeJson(recipientEmail) + "\"],"
+                    + "\"subject\":\"" + escapeJson(subject) + "\","
+                    + "\"text\":\"" + escapeJson(body) + "\""
+                    + "}";
+
+            HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("https://api.resend.com/emails"))
+                    .timeout(Duration.ofSeconds(20))
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            json, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> result = HTTP_CLIENT.send(
+                    httpRequest,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+            int status = result.statusCode();
+
+            if (status >= 200 && status < 300) {
+                System.out.println("OTP email accepted by Resend.");
+                return true;
+            }
+
+            // The response can contain useful provider error details.
+            // Never print the API key.
+            System.err.println("Resend API HTTP status: " + status);
+            System.err.println("Resend API response: " + result.body());
+            return false;
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.err.println("Resend OTP request was interrupted.");
+            return false;
+        } catch (Exception e) {
+            System.err.println("Failed to send OTP through Resend: "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    private String escapeJson(String value) {
+        return value.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
+    }
+
+    private void clearOtpState(HttpSession session) {
+        session.removeAttribute("resetOtp");
+        session.removeAttribute("otpExpiry");
+        session.removeAttribute("otpVerified");
+        session.removeAttribute("otpAttempts");
+    }
+
+    private void showAlert(HttpServletResponse response,
+                           String message,
+                           String redirectPath) throws IOException {
+        response.setContentType("text/html;charset=UTF-8");
+        String safeMessage = message.replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\r", "")
+                .replace("\n", "\\n");
+        String safePath = redirectPath.replace("'", "");
+        response.getWriter().println(
+                "<script>alert('" + safeMessage + "');"
+                + "location='" + safePath + "';</script>");
     }
 }
