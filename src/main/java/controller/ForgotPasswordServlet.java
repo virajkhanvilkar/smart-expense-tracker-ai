@@ -32,6 +32,7 @@ public class ForgotPasswordServlet extends HttpServlet {
 
     private static final Pattern EMAIL_PATTERN =
             Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+
     @Override
     protected void doGet(HttpServletRequest request,
                          HttpServletResponse response)
@@ -66,7 +67,7 @@ public class ForgotPasswordServlet extends HttpServlet {
         response.sendRedirect("login.jsp");
     }
 
-    // STEP 1: Generate and send OTP.
+    // STEP 1: Validate the registered email and send an OTP.
     private void sendOtp(HttpServletRequest request,
                          HttpServletResponse response)
             throws ServletException, IOException {
@@ -79,9 +80,8 @@ public class ForgotPasswordServlet extends HttpServlet {
         if (email == null || email.trim().isEmpty()
                 || !EMAIL_PATTERN.matcher(email.trim()).matches()) {
 
-            showAlert(response,
-                    "Please enter a valid registered email.",
-                    "forgotPassword.jsp");
+            showError(request, response,
+                    "Please enter a valid email on the login page.");
             return;
         }
 
@@ -89,10 +89,10 @@ public class ForgotPasswordServlet extends HttpServlet {
 
         UserDAO dao = new UserDAO();
 
+        // Check that the email belongs to a registered account.
         if (!dao.emailExists(email)) {
-            showAlert(response,
-                    "This email is not registered.",
-                    "forgotPassword.jsp");
+            showError(request, response,
+                    "No registered account was found for that email.");
             return;
         }
 
@@ -100,51 +100,43 @@ public class ForgotPasswordServlet extends HttpServlet {
         String otp = String.valueOf(
                 100000 + SECURE_RANDOM.nextInt(900000));
 
+        // Send only to the email that passed the database check.
         boolean sent = sendOTPEmail(email, otp);
 
-        if (sent) {
-            HttpSession session = request.getSession();
-
-            session.setAttribute("resetEmail", email);
-            session.setAttribute("resetOtp", otp);
-            session.setAttribute(
-                    "otpExpiry",
-                    System.currentTimeMillis() + OTP_VALIDITY_MILLIS);
-
-            session.removeAttribute("otpVerified");
-            session.removeAttribute("otpAttempts");
-
-            request.setAttribute("otpSent", true);
-
-            request.getRequestDispatcher("forgotPassword.jsp")
-                    .forward(request, response);
-
-        } else {
-            HttpSession session = request.getSession(false);
-
-            if (session != null) {
-                clearOtpState(session);
-                session.removeAttribute("resetEmail");
-            }
-
-            showAlert(response,
-                    "Unable to send OTP. Please check the email configuration and try again.",
-                    "forgotPassword.jsp");
+        if (!sent) {
+            showError(request, response,
+                    "Unable to send OTP. Please try again later.");
+            return;
         }
+
+        HttpSession session = request.getSession();
+
+        // Store the account and OTP server-side.
+        session.setAttribute("resetEmail", email);
+        session.setAttribute("resetOtp", otp);
+        session.setAttribute(
+                "otpExpiry",
+                System.currentTimeMillis() + OTP_VALIDITY_MILLIS);
+
+        session.removeAttribute("otpVerified");
+        session.removeAttribute("otpAttempts");
+
+        request.setAttribute("otpSent", true);
+
+        request.getRequestDispatcher("forgotPassword.jsp")
+                .forward(request, response);
     }
 
     // STEP 2: Verify the OTP.
     private void verifyOtp(HttpServletRequest request,
-                          HttpServletResponse response)
+                           HttpServletResponse response)
             throws ServletException, IOException {
 
         HttpSession session = request.getSession(false);
 
         if (session == null) {
-            request.setAttribute("error",
-                    "OTP session expired. Please request a new OTP.");
-            request.getRequestDispatcher("forgotPassword.jsp")
-                    .forward(request, response);
+            showError(request, response,
+                    "Your session expired. Please request a new OTP.");
             return;
         }
 
@@ -153,20 +145,18 @@ public class ForgotPasswordServlet extends HttpServlet {
         Long expiry = (Long) session.getAttribute("otpExpiry");
 
         if (savedOtp == null || expiry == null) {
-            request.setAttribute("error",
+            clearOtpState(session);
+
+            showError(request, response,
                     "OTP expired. Please request a new OTP.");
-            request.getRequestDispatcher("forgotPassword.jsp")
-                    .forward(request, response);
             return;
         }
 
         if (System.currentTimeMillis() > expiry) {
             clearOtpState(session);
 
-            request.setAttribute("error",
-                    "OTP has expired. Please request a new OTP.");
-            request.getRequestDispatcher("forgotPassword.jsp")
-                    .forward(request, response);
+            showError(request, response,
+                    "OTP expired. Please request a new OTP.");
             return;
         }
 
@@ -179,15 +169,12 @@ public class ForgotPasswordServlet extends HttpServlet {
         if (attempts >= 5) {
             clearOtpState(session);
 
-            request.setAttribute("error",
+            showError(request, response,
                     "Too many incorrect attempts. Please request a new OTP.");
-            request.getRequestDispatcher("forgotPassword.jsp")
-                    .forward(request, response);
             return;
         }
 
-        if (enteredOtp != null
-                && savedOtp.equals(enteredOtp.trim())) {
+        if (enteredOtp != null && savedOtp.equals(enteredOtp.trim())) {
 
             session.setAttribute("otpVerified", true);
             session.removeAttribute("resetOtp");
@@ -207,7 +194,7 @@ public class ForgotPasswordServlet extends HttpServlet {
                 .forward(request, response);
     }
 
-    // STEP 3: Reset password after OTP verification.
+    // STEP 3: Reset the password after successful OTP verification.
     private void resetPassword(HttpServletRequest request,
                                HttpServletResponse response)
             throws ServletException, IOException {
@@ -218,32 +205,23 @@ public class ForgotPasswordServlet extends HttpServlet {
                 || !Boolean.TRUE.equals(
                         session.getAttribute("otpVerified"))) {
 
-            response.sendRedirect("login.jsp");
+            showError(request, response,
+                    "Please verify your OTP before resetting your password.");
             return;
         }
 
-        // Must match name="newPassword" in forgotPassword.jsp.
+        // Matches name="newPassword" in forgotPassword.jsp.
         String password = request.getParameter("newPassword");
         String confirmPassword =
                 request.getParameter("confirmPassword");
 
         if (password == null || confirmPassword == null
-                || password.trim().isEmpty()
-                || confirmPassword.trim().isEmpty()) {
+                || password.length() < 8
+                || !password.equals(confirmPassword)) {
 
             request.setAttribute("verified", true);
             request.setAttribute("error",
-                    "Please enter both passwords.");
-
-            request.getRequestDispatcher("forgotPassword.jsp")
-                    .forward(request, response);
-            return;
-        }
-
-        if (!password.equals(confirmPassword)) {
-            request.setAttribute("verified", true);
-            request.setAttribute("error",
-                    "Passwords do not match.");
+                    "Enter matching passwords with at least 8 characters.");
 
             request.getRequestDispatcher("forgotPassword.jsp")
                     .forward(request, response);
@@ -253,30 +231,31 @@ public class ForgotPasswordServlet extends HttpServlet {
         String email = (String) session.getAttribute("resetEmail");
 
         if (email == null) {
-            response.sendRedirect("login.jsp");
+            session.invalidate();
+            showError(request, response,
+                    "Your reset session expired. Please start again.");
             return;
         }
 
         UserDAO dao = new UserDAO();
+
         boolean updated = dao.updatePassword(email, password);
 
         if (updated) {
             session.invalidate();
 
-            showAlert(response,
-                    "Password reset successfully!",
-                    "login.jsp");
+            response.sendRedirect("login.jsp?reset=success");
         } else {
             request.setAttribute("verified", true);
             request.setAttribute("error",
-                    "Failed to update password.");
+                    "Password update failed. Please try again.");
 
             request.getRequestDispatcher("forgotPassword.jsp")
                     .forward(request, response);
         }
     }
 
-    // STEP 4: Send OTP through Resend HTTPS API.
+    // STEP 4: Send OTP through the Resend API.
     private boolean sendOTPEmail(String recipientEmail, String otp) {
 
         String apiKey = System.getenv("RESEND_API_KEY");
@@ -303,8 +282,7 @@ public class ForgotPasswordServlet extends HttpServlet {
                     + "Your Smart Expense Tracker password reset OTP is:\n\n"
                     + otp + "\n\n"
                     + "This OTP is valid for 5 minutes.\n\n"
-                    + "If you did not request a password reset, "
-                    + "please ignore this email.\n\n"
+                    + "If you did not request this reset, ignore this email.\n\n"
                     + "Regards,\nSmart Expense Tracker";
 
             String json = "{"
@@ -342,7 +320,6 @@ public class ForgotPasswordServlet extends HttpServlet {
                 return true;
             }
 
-            // Response details help diagnose provider errors.
             // Never log the API key or OTP.
             System.err.println(
                     "ERROR: Resend API response: " + result.body());
@@ -353,13 +330,12 @@ public class ForgotPasswordServlet extends HttpServlet {
             Thread.currentThread().interrupt();
 
             System.err.println(
-                    "ERROR: Resend OTP request was interrupted.");
-
+                    "ERROR: Resend request interrupted.");
             return false;
 
         } catch (Exception e) {
             System.err.println(
-                    "ERROR: Failed to send OTP through Resend: "
+                    "ERROR: Resend request failed: "
                     + e.getClass().getSimpleName()
                     + ": " + e.getMessage());
 
@@ -367,7 +343,6 @@ public class ForgotPasswordServlet extends HttpServlet {
         }
     }
 
-    // Escape text safely for JSON.
     private String escapeJson(String value) {
         return value.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
@@ -376,7 +351,6 @@ public class ForgotPasswordServlet extends HttpServlet {
                 .replace("\t", "\\t");
     }
 
-    // Clear OTP-related session attributes.
     private void clearOtpState(HttpSession session) {
         session.removeAttribute("resetOtp");
         session.removeAttribute("otpExpiry");
@@ -384,25 +358,14 @@ public class ForgotPasswordServlet extends HttpServlet {
         session.removeAttribute("otpAttempts");
     }
 
-    // Display an alert and redirect.
-    private void showAlert(HttpServletResponse response,
-                           String message,
-                           String redirectPath)
-            throws IOException {
+    private void showError(HttpServletRequest request,
+                           HttpServletResponse response,
+                           String message)
+            throws ServletException, IOException {
 
-        response.setContentType("text/html;charset=UTF-8");
+        request.setAttribute("error", message);
 
-        String safeMessage = message
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\r", "")
-                .replace("\n", "\\n");
-
-        String safePath = redirectPath.replace("'", "");
-
-        response.getWriter().println(
-                "<script>alert('" + safeMessage + "');"
-                + "window.location.href='" + safePath + "';"
-                + "</script>");
+        request.getRequestDispatcher("forgotPassword.jsp")
+                .forward(request, response);
     }
 }

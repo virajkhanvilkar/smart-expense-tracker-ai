@@ -1,38 +1,30 @@
 
-<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8" %>
+<%@ page language="java" contentType="text/html; charset=UTF-8"
+         pageEncoding="UTF-8" %>
+
 <%
     Boolean otpSent = (Boolean) request.getAttribute("otpSent");
     Boolean verified = (Boolean) request.getAttribute("verified");
     String error = (String) request.getAttribute("error");
-    String emailValue = request.getParameter("email");
-
-    if (emailValue == null) {
-        emailValue = "";
-    }
-
-    String safeEmail = emailValue
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&#39;");
 
     String safeError = "";
     if (error != null) {
         safeError = error
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&#39;");
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 %>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Forgot Password - Smart Expense Tracker</title>
+    <title>Reset Password - Smart Expense Tracker</title>
+
     <style>
         * { box-sizing: border-box; }
 
@@ -95,7 +87,7 @@
         button:hover { background: #147dcc; }
 
         .message {
-            padding: 10px;
+            padding: 12px;
             border-radius: 5px;
             margin: 15px 0;
             overflow-wrap: anywhere;
@@ -123,6 +115,7 @@
         }
     </style>
 </head>
+
 <body>
 <main class="card">
     <h1>Reset Your Password</h1>
@@ -133,52 +126,65 @@
 
     <% if (Boolean.TRUE.equals(verified)) { %>
 
-        <p>OTP verified. Enter your new password.</p>
+        <p>OTP verified successfully. Enter your new password.</p>
 
         <form action="ForgotPasswordServlet" method="post">
             <input type="hidden" name="action" value="resetPassword">
 
             <label for="newPassword">New Password</label>
-            <input type="password" id="newPassword" name="newPassword"
-                   minlength="8" autocomplete="new-password" required>
+            <input type="password"
+                   id="newPassword"
+                   name="newPassword"
+                   minlength="8"
+                   autocomplete="new-password"
+                   required>
 
             <label for="confirmPassword">Confirm Password</label>
-            <input type="password" id="confirmPassword"
-                   name="confirmPassword" minlength="8"
-                   autocomplete="new-password" required>
+            <input type="password"
+                   id="confirmPassword"
+                   name="confirmPassword"
+                   minlength="8"
+                   autocomplete="new-password"
+                   required>
 
             <button type="submit">Reset Password</button>
         </form>
 
     <% } else if (Boolean.TRUE.equals(otpSent)) { %>
 
-        <p>Enter the OTP sent to your registered email address.</p>
+        <div class="message success">
+            OTP request accepted. Check your registered email inbox and spam folder.
+        </div>
+
+        <p>Enter the six-digit OTP you received.</p>
 
         <form action="ForgotPasswordServlet" method="post">
             <input type="hidden" name="action" value="verifyOtp">
 
             <label for="otp">6-digit OTP</label>
-            <input type="text" id="otp" name="otp"
-                   inputmode="numeric" pattern="[0-9]{6}"
-                   maxlength="6" autocomplete="one-time-code" required>
+            <input type="text"
+                   id="otp"
+                   name="otp"
+                   inputmode="numeric"
+                   pattern="[0-9]{6}"
+                   maxlength="6"
+                   autocomplete="one-time-code"
+                   required>
 
             <button type="submit">Verify OTP</button>
         </form>
 
     <% } else { %>
 
-        <p>Enter your registered email address to request a password-reset OTP.</p>
+        <p>
+            To reset your password, return to the login page,
+            enter your registered email address, and click
+            <strong>Forgot Password?</strong>
+        </p>
 
-        <form action="ForgotPasswordServlet" method="get">
-            <input type="hidden" name="action" value="sendOtp">
-
-            <label for="email">Registered Email</label>
-            <input type="email" id="email" name="email"
-                   value="<%= safeEmail %>"
-                   autocomplete="email" required>
-
-            <button type="submit">Send OTP</button>
-        </form>
+        <p>
+            <a href="login.jsp">Return to Login</a>
+        </p>
 
     <% } %>
 
